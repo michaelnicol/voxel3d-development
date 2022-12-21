@@ -1,0 +1,17 @@
+{
+  "dependencies": {
+    "nodemon": "^2.0.20",
+    "typescript": "^4.9.4",
+    "vite": "^4.0.3"
+  },
+  "name": "ts_voxel_model",
+  "version": "1.0.0",
+  "main": "voxel3d.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": ""
+}
