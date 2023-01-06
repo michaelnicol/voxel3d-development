@@ -22,12 +22,12 @@ export enum JointBoundingBoxActions {
 /**
  * A single XYZ Point
  */
-type Voxel = [number, number, number];
+export type Voxel = [number, number, number];
 
 /**
  * Valid corner keys for {@link PartialBoundingBox} and {@link CompleteBoundingBox}
  */
-type VALID_BOUNDING_KEY = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7"
+export type VALID_BOUNDING_KEY = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7"
 
 /**
  * Holds the data for the corners of a rectangle. This data type is to be used when the box is incomplete with one or more corner data missing.
@@ -36,7 +36,7 @@ type VALID_BOUNDING_KEY = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7"
  * This type is used for internal calculations of {@link BoundingBox}. The intersection of two boxes may produce a partial box, requiring correction.
  * 
  */
-interface PartialBoundingBox {
+export interface PartialBoundingBox {
    "0": Voxel | [],
    "1": Voxel | [],
    "2": Voxel | [],
@@ -47,10 +47,25 @@ interface PartialBoundingBox {
    "7": Voxel | []
 }
 /**
+ * Used by {@link BaseObject} to represent a Bounding Box that surronds no Voxels.
+ */
+export interface ZeroVolumeBoundingBox {
+   boundingBox: {
+      "0": [],
+      "1": [],
+      "2": [],
+      "3": [],
+      "4": [],
+      "5": [],
+      "6": [],
+      "7": []
+   }
+}
+/**
  * Holds the data for the corners of a rectangle. This data type is to be used when the box is complete.
  * 
 */
-interface CompleteBoundingBox {
+export interface CompleteBoundingBox {
    "0": Voxel,
    "1": Voxel,
    "2": Voxel,
@@ -301,7 +316,7 @@ export class BoundingBox {
          let key = String(i) as VALID_BOUNDING_KEY
          this.boundingBox[key] = [...boundingBoxStructure[key]];
       }
-      this.calculateRange()
+      this.calculateRange(BoundingBox.compileBoundingDirectory(boundingBoxStructure))
    }
    /**
     * Checks if a given point falls within the 3D space this box covers.
@@ -334,19 +349,18 @@ export class BoundingBox {
       return voxels
    }
    /**
-    * Calculates all of the metadata based on the current {@link BoundingBox.boundingBox}. This includes the point extremes and ranges on all three axes.
+    * Calculates all of the metadata based for the current {@link BoundingBox.boundingBox}. This includes the point extremes and ranges on all three axes.
     * @param array2D 
     */
-   calculateRange(): void {
-      let array2D = BoundingBox.compileBoundingDirectory(this.boundingBox)
+   calculateRange(array2D: Voxel[]): void {
       let xValues = array2D.reduce<number[]>((prev, curr) => { return prev.push(curr[0]), prev }, []).sort((a, b) => a - b)
       let yValues = array2D.reduce<number[]>((prev, curr) => { return prev.push(curr[1]), prev }, []).sort((a, b) => a - b)
       let zValues = array2D.reduce<number[]>((prev, curr) => { return prev.push(curr[2]), prev }, []).sort((a, b) => a - b)
       this.xLow = xValues[0]
       this.xHigh = xValues[xValues.length - 1]
-      this.yLow = yValues[1]
+      this.yLow = yValues[0]
       this.yHigh = yValues[yValues.length - 1]
-      this.zLow = zValues[2]
+      this.zLow = zValues[0]
       this.zHigh = zValues[zValues.length - 1]
       this.zRange = Math.abs(this.zHigh - this.zLow)
       this.yRange = Math.abs(this.yHigh - this.yLow)
@@ -376,8 +390,14 @@ export class BoundingBox {
     */
    createBoundingBox(array2D: Voxel[]): void {
       if (array2D.length > 0) {
-         this.calculateRange();
+         this.calculateRange(array2D);
          this.boundingBox[0] = [this.xLow, this.yLow, this.zLow]
+         this.boundingBox[1] = [this.xHigh, this.yLow, this.zLow]
+         this.boundingBox[2] = [this.xLow, this.yHigh, this.zLow]
+         this.boundingBox[3] = [this.xHigh, this.yHigh, this.zLow]
+         this.boundingBox[4] = [this.xLow, this.yLow, this.zHigh]
+         this.boundingBox[5] = [this.xHigh, this.yLow, this.zHigh]
+         this.boundingBox[6] = [this.xLow, this.yHigh, this.zHigh]
          this.boundingBox[7] = [this.xHigh, this.yHigh, this.zHigh]
       } else {
          throw new RangeError("Invalid BoundingBox.createBoundingBox argument: array2D must contain at least one XYZ voxel.")
@@ -447,19 +467,32 @@ export class BoundingBox {
       [[2, 6], [3, 7], [0, 4], [1, 5]]
    ];
    /**
-   * @remarks Generates a new {@link BoundingBox.boundingBox} from the intersection between two inputted boxes. Used to find the cubic range area that is shared between two boxes, if any.
+   * @remarks Generates a new {@link BoundingBox.boundingBox} or {@link BoundingBox.PartialBoundingBox} from the intersection between two inputted boxes. Used to find the cubic range area that is shared between two boxes, if any.
    * @param b1 Box 1
    * @param b2 Box 2
    * @returns Returns an array, and if the first element is true, then the second element is the intersection {@link BoundingBox.boundingBox}. Otherwise, the intersection is not possible (false).
    */
-   static boundingBoxIntersect(b1: CompleteBoundingBox, b2: CompleteBoundingBox): CompleteBoundingBox {
+   static boundingBoxIntersect(b1: CompleteBoundingBox | PartialBoundingBox, b2: CompleteBoundingBox | PartialBoundingBox): [boolean, CompleteBoundingBox | PartialBoundingBox] {
       const b3: PartialBoundingBox = BoundingBox.getEmptyBoundingTemplate()
+      if (BoundingBox.findEntryCount(b1) < 8) {
+         b1 = BoundingBox.correctBoundingBox(b1)[1]
+         if (BoundingBox.findEntryCount(b1) < 8) {
+            return [false, BoundingBox.getEmptyBoundingTemplate()]
+         }
+      } else if (BoundingBox.findEntryCount(b2) < 8) {
+         b2 = BoundingBox.correctBoundingBox(b2)[1]
+         if (BoundingBox.findEntryCount(b2) < 8) {
+            return [false, BoundingBox.getEmptyBoundingTemplate()]
+         }
+      }
+      b1 = b1 as CompleteBoundingBox
+      b2 = b2 as CompleteBoundingBox
       for (let xp of this.#VP[0]) {
          // check if b1 is inside b2
          // if xp0 and xp1's vectors extending infitly in x direction,
          // pass through planes defined by 0,4,2 and 1,5,3
-         let left = BoundingBox.horizontalCheck(b1[xp[0] + "" as VALID_BOUNDING_KEY], b2[0], b2[2], b2[4]);
-         let right = BoundingBox.horizontalCheck(b1[xp[1] + "" as VALID_BOUNDING_KEY], b2[1], b2[3], b2[5]);
+         let left = BoundingBox.horizontalCheck(b1[xp[0] + "" as VALID_BOUNDING_KEY] as Voxel, b2[0] as Voxel, b2[2] as Voxel, b2[4] as Voxel);
+         let right = BoundingBox.horizontalCheck(b1[xp[1] + "" as VALID_BOUNDING_KEY] as Voxel, b2[1] as Voxel, b2[3] as Voxel, b2[5] as Voxel);
          if (left && right) {
             // b1-left-x >= b2-0-x
             if (b1[xp[0] + "" as VALID_BOUNDING_KEY][0] <= b2[0][0]) {
@@ -481,14 +514,14 @@ export class BoundingBox {
       }
       for (let yp of this.#VP[1]) {
          // if down's vectors extends through plane 0, 1, 4
-         let down = BoundingBox.verticalCheck(b1[yp[0] + "" as VALID_BOUNDING_KEY], b2[0], b2[1], b2[4]);
+         let down = BoundingBox.verticalCheck(b1[yp[0] + "" as VALID_BOUNDING_KEY] as Voxel, b2[0] as Voxel, b2[1] as Voxel, b2[4] as Voxel);
          // if ups vectors extends through plane 2, 3, 6
-         let up = BoundingBox.verticalCheck(b1[yp[1] + "" as VALID_BOUNDING_KEY], b2[2], b2[3], b2[6]);
+         let up = BoundingBox.verticalCheck(b1[yp[1] + "" as VALID_BOUNDING_KEY] as Voxel, b2[2] as Voxel, b2[3] as Voxel, b2[6] as Voxel);
          if (up && down) {
             // b1-down-y >= b2-2-y
             if (b1[yp[0] + "" as VALID_BOUNDING_KEY][1] <= b2[1][1]) {
                // b3-down = b1-down-x, b2-0-y, b1-down-z
-               b3[yp[0] + "" as VALID_BOUNDING_KEY] = [b1[yp[0] + "" as VALID_BOUNDING_KEY][0], b2[0][1], b1[yp[0] + "" as VALID_BOUNDING_KEY][2]];
+               b3[yp[0] + "" as VALID_BOUNDING_KEY] = [b1[yp[0] + "" as VALID_BOUNDING_KEY][0], b2[0][1], b1[yp[0] + "" as VALID_BOUNDING_KEY][2]]  as Voxel
             } else {
                // b3-down = b1-down
                b3[yp[0] + "" as VALID_BOUNDING_KEY] = [...b1[yp[0] + "" as VALID_BOUNDING_KEY]]
@@ -496,7 +529,7 @@ export class BoundingBox {
             // b1-up-y >= b2-2-y
             if (b1[yp[1] + "" as VALID_BOUNDING_KEY][1] >= b2[2][1]) {
                // b3-up = b1-up-x, b2-0-y, b1-up-z
-               b3[yp[1] + "" as VALID_BOUNDING_KEY] = [b1[yp[1] + "" as VALID_BOUNDING_KEY][0], b2[2][1], b1[yp[1] + "" as VALID_BOUNDING_KEY][2]];
+               b3[yp[1] + "" as VALID_BOUNDING_KEY] = [b1[yp[1] + "" as VALID_BOUNDING_KEY][0], b2[2][1], b1[yp[1] + "" as VALID_BOUNDING_KEY][2]]  as Voxel
             } else {
                // b3-up = b2-up
                b3[yp[1] + "" as VALID_BOUNDING_KEY] = [...b1[yp[1] + "" as VALID_BOUNDING_KEY]]
@@ -505,15 +538,15 @@ export class BoundingBox {
       }
       for (let zp of this.#VP[2]) {
          // if closet point vector extends through plane 4,5,6
-         let closet = BoundingBox.depthCheck(b1[zp[0] + "" as VALID_BOUNDING_KEY], b2[0], b2[1], b2[2]);
+         let closet = BoundingBox.depthCheck(b1[zp[0] + "" as VALID_BOUNDING_KEY] as Voxel, b2[0] as Voxel, b2[1] as Voxel, b2[2] as Voxel);
          // if farthest points vector extends through 0,1,2
-         let further = BoundingBox.depthCheck(b1[zp[1] + "" as VALID_BOUNDING_KEY], b2[4], b2[5], b2[6]);
+         let further = BoundingBox.depthCheck(b1[zp[1] + "" as VALID_BOUNDING_KEY] as Voxel, b2[4] as Voxel, b2[5] as Voxel, b2[6] as Voxel);
          // if both these poins align through the planes
          if (closet && further) {
             // b1-close-z <= b2-0-z
             if (b1[zp[0] + "" as VALID_BOUNDING_KEY][2] <= b2[0][2]) {
                // b3-close = close-x, close-y b2-0-z
-               b3[zp[0] + "" as VALID_BOUNDING_KEY] = [b1[zp[0] + "" as VALID_BOUNDING_KEY][0], b1[zp[0] + "" as VALID_BOUNDING_KEY][1], b2[0][2]];
+               b3[zp[0] + "" as VALID_BOUNDING_KEY] = [b1[zp[0] + "" as VALID_BOUNDING_KEY][0], b1[zp[0] + "" as VALID_BOUNDING_KEY][1], b2[0][2]]  as Voxel
             } else {
                // b3-close = b1-close
                b3[zp[0] + "" as VALID_BOUNDING_KEY] = [...b1[zp[1] + "" as VALID_BOUNDING_KEY]]
@@ -521,11 +554,11 @@ export class BoundingBox {
             // b1-far-z >= b2-6-2
             if (b1[zp[1] + "" as VALID_BOUNDING_KEY][2] >= b2[6][2]) {
                // b3-far = far-x. far-y. b2-6-z
-               b3[zp[1] + "" as VALID_BOUNDING_KEY] = [b1[zp[1] + "" as VALID_BOUNDING_KEY][0], b1[zp[1] + "" as VALID_BOUNDING_KEY][1], b2[6][2]];
+               b3[zp[1] + "" as VALID_BOUNDING_KEY] = [b1[zp[1] + "" as VALID_BOUNDING_KEY][0], b1[zp[1] + "" as VALID_BOUNDING_KEY][1], b2[6][2]]  as Voxel
             }
          }
       }
-      return BoundingBox.correctBoundingBox(b3)[1] as CompleteBoundingBox
+      return BoundingBox.correctBoundingBox(b3)
    }
    /**
     * Checks if all of the given vertice numbers are defined within {@link BoundingBox.boundingBox} b3 (valid {@link Voxel}). 
@@ -809,6 +842,7 @@ export class UUIDController {
     */
    removeID(id: string) {
       this.#arrID = this.#arrID.filter(n => id !== n)
+      delete this._objIDReferance[id]
       return [...this.#arrID];
    }
    /**
@@ -885,6 +919,8 @@ export type SortedFillVoxelsDirectoryType = Record<number, Voxel[]>
 /**
  * A BaseObject holds the most basic data structures required to construct a 3D tesselated shape.
  * 
+ * @todo Add sorting methods
+ * 
  * @remarks
  * See the instance attributes for the baseline requirements to be considered a shape.
  */
@@ -921,10 +957,15 @@ export class BaseObject {
    /**
     * A single {@link BoundingBox} that emcompasses the entire {@link BaseObject._fillVoxels}.
     * 
+    * If the their are no voxels to surrond, it comes a empty Bounding Box {@link ZeroVolumeBoundingBox}. This type mimics a bounding box, but contains no corner voxels or range data.
+    * 
+    * Without these zero voxel type, the {@link BaseObject} could never represent a shape with no Voxels, 
+    * which would be a would be a issue with representing a shape the is composed as the mathematical intersection between two shapes that do not intersect.
+    * 
     * @remarks
     * Accounts for origin.
     */
-   boundingBox: BoundingBox
+   boundingBox: ZeroVolumeBoundingBox | BoundingBox
    /**
     * Catagorizes a group of voxels into a directory where the key is the value of the largest axes from the {@link BoundingBox}. The value is all voxels with that coordinate value.
     *     
@@ -942,7 +983,7 @@ export class BaseObject {
          boundingInputPayload: BaseObject.addOrigin(this._fillVoxels, this._origin),
          inputType: BoundingBoxPayloadModes.TYPE_BOUNDING_POINTS
       });
-      let output: SortFillVoxelsOutput = BaseObject.sortFillVoxels(this.getFillVoxels(), this.boundingBox)
+      let output: SortFillVoxelsOutput = BaseObject.sortFillVoxels(this.getFillVoxels(), this.boundingBox as BoundingBox)
       this.sortedFillVoxelsDirectory = output.sortedFillVoxelsDirectory
       this.jointBoundingBox = output.jointBoundingBox
    }
@@ -987,15 +1028,25 @@ export class BaseObject {
     * Since the {@link BaseObject.boundingBox}, {@link BaseObject.sortedFillVoxelsDirectory}, and {@link BaseObject.jointBoundingBox} are all based on the current {@link BaseObject._fillVoxels}, a change to the fill voxels or origin will now make these directories wrong.
     * 
     * Each time the fill voxels or origin are changed, this method must be called. Any built in subclass of {@link BaseObject} that changes fill voxels, such as {@link Line.generateLine}, will automatically call this method.
-    */
+    *
+    * {@link BaseObject.sortFillVoxels} can only accept a BoundingBox and more than one Voxel. As a result, we cannot run that function when the object has no voxels. 
+    * 
+    * As a result, running this function when you have no voxels will result in creating a {@link ZeroVolumeBoundingBox}, an empty {@link JointBoundingBox}, and an empty {@link BaseObject.sortedFillVoxelsDirectory}
+   */
    calculateBoundingBox(): void {
-      this.boundingBox = new BoundingBox({
-         inputType: BoundingBoxPayloadModes.TYPE_BOUNDING_POINTS,
-         boundingInputPayload: this.getFillVoxels()
-      });
-      let output: SortFillVoxelsOutput = BaseObject.sortFillVoxels(this.getFillVoxels(), this.boundingBox)
-      this.sortedFillVoxelsDirectory = output.sortedFillVoxelsDirectory
-      this.jointBoundingBox = output.jointBoundingBox
+      if (this._fillVoxels.length === 0) {
+         this.boundingBox = { boundingBox: BoundingBox.getEmptyBoundingTemplate() } as ZeroVolumeBoundingBox
+         this.jointBoundingBox = new JointBoundingBox([])
+         this.sortedFillVoxelsDirectory = {}
+      } else {
+         this.boundingBox = new BoundingBox({
+            inputType: BoundingBoxPayloadModes.TYPE_BOUNDING_POINTS,
+            boundingInputPayload: this.getFillVoxels()
+         });
+         let output: SortFillVoxelsOutput = BaseObject.sortFillVoxels(this.getFillVoxels(), this.boundingBox as BoundingBox)
+         this.sortedFillVoxelsDirectory = output.sortedFillVoxelsDirectory
+         this.jointBoundingBox = output.jointBoundingBox
+      }
    }
    /**
     * Changes the current shapes origin and calls {@link BaseObject.calculateBoundingBox}
@@ -1003,8 +1054,10 @@ export class BaseObject {
     * 
     * @example
     * // Source code
-    * this._origin = [...o]
-    * this.calculateBoundingBox()
+    * setOrigin(o: Voxel): void {
+    *  this._origin = [...o]
+    *  this.calculateBoundingBox()
+    * }
     */
    setOrigin(o: Voxel): void {
       this._origin = [...o]
@@ -1040,11 +1093,13 @@ export class BaseObject {
       }
       for (let key of Object.keys(sortedFillVoxelsDirectory)) {
          let fillKey = Number(key)
-         sliceBoundingBoxDirectory.push(new BoundingBox({
-            inputType: BoundingBoxPayloadModes.TYPE_BOUNDING_POINTS,
-            boundingInputPayload: sortedFillVoxelsDirectory[fillKey]
-         })
-         )
+         if (sortedFillVoxelsDirectory[fillKey].length >= 1) {
+            sliceBoundingBoxDirectory.push(new BoundingBox({
+               inputType: BoundingBoxPayloadModes.TYPE_BOUNDING_POINTS,
+               boundingInputPayload: sortedFillVoxelsDirectory[fillKey]
+            })
+            )
+         }
       }
       return {
          jointBoundingBox: new JointBoundingBox(sliceBoundingBoxDirectory),
@@ -1209,7 +1264,7 @@ export class BaseObject {
 /**
  * The valid {@link Line} options. 
  */
-interface LineOptions {
+export interface LineOptions {
    "controller": UUIDController,
    "origin": Voxel,
    /**
@@ -1218,20 +1273,6 @@ interface LineOptions {
    "endPoints": [Voxel, Voxel]
 }
 
-
-/**
- * Used for {@link Line.generateLine} to decide how the line should be generated.
- * 
- * A single pass will generate the line from start to end via {@link BaseObject.graph3DParametric}, and set the fill voxels
- * 
- * Double pass will generate from start to end, and then end to start. It will combine both lines into one and set the fill voxels.
- * 
- * For more information, see {@link BaseObject.graph3DParametric}
- */
-enum LineTypes {
-   SINGLE_PASS_LINE = "SINGLE_PASS_LINE",
-   DOUBLE_PASS_LINE = "DOUBLE_PASS_LINE"
-}
 
 /**
  * Contains all of the data structures to generate a 3D line between two points in 3D space.
@@ -1244,11 +1285,10 @@ enum LineTypes {
  * 
  * {@link BaseObject}
  * 
- * {@link LineTypes}
  * 
  * {@link LineOptions}
  */
-class Line extends BaseObject {
+export class Line extends BaseObject {
    /**
     * Stored the inputted endPoints. Does not account for origin.
     */
@@ -1266,30 +1306,14 @@ class Line extends BaseObject {
    /**
     * Generates the line between the {@link Line._endPoints}.
     * The outputted {@link Line._fillVoxels} are sorted by the first, second, and then third smallest axes order.
-    * @param mode See {@link LineTypes} for more information.
     */
-   generateLine(mode: LineTypes) {
-      const { biggestRangeIndex } = this.boundingBox;
+   generateLine() {
+      const { biggestRangeIndex } = this.boundingBox as BoundingBox;
       let startToEnd = BaseObject.graph3DParametric(
          ...this._endPoints[0],
          ...this._endPoints[1]
       );
-      if (mode === LineTypes.DOUBLE_PASS_LINE) {
-         let endToStart = BaseObject.graph3DParametric(
-            ...this._endPoints[1],
-            ...this._endPoints[0]
-         ).reverse();
-         // pushes to fill voxels
-         for (let j = 0; j < endToStart.length; j++) {
-            // If a item parrel to 
-            if (JSON.stringify(endToStart[j]) !== JSON.stringify(startToEnd[j])) {
-               this._fillVoxels.push(endToStart[j])
-            }
-            this._fillVoxels[j]
-         }
-      } else {
-         BaseObject.push2D(startToEnd, this._fillVoxels);
-      }
+      BaseObject.push2D(startToEnd, this._fillVoxels);
       this._fillVoxels = this._fillVoxels
          .sort((a, b) => a[biggestRangeIndex[0]] - b[biggestRangeIndex[0]])
          .sort((a, b) => a[biggestRangeIndex[1]] - b[biggestRangeIndex[1]])
@@ -1316,7 +1340,7 @@ class Line extends BaseObject {
 /**
  * Options for the {@link Layer} constructor.
  */
-interface LayerOptions {
+export interface LayerOptions {
    "controller": UUIDController,
    "origin": Voxel,
    "verticesArray": Voxel[]
@@ -1325,7 +1349,7 @@ interface LayerOptions {
 /**
  * Stores data structures required to create a 3D polygon in 3D space.
  */
-class Layer extends BaseObject {
+export class Layer extends BaseObject {
    /**
     * One or more vertices that make up this polygon. Order of vertices decides how the shape will be generated.
     * 
@@ -1398,7 +1422,7 @@ class Layer extends BaseObject {
                A double sided line is used.
             */
             tempLine.changeEndPoints([this._verticesArray[startIndex], this._verticesArray[endIndex]]);
-            tempLine.generateLine(LineTypes.DOUBLE_PASS_LINE)
+            tempLine.generateLine()
             let lineFillVoxels = tempLine.getFillVoxels();
             this.edgeDirectory[entryKey] = lineFillVoxels;
             BaseObject.push2D(this.edgeDirectory[entryKey].slice(1, lineFillVoxels.length - 1), this._fillVoxels)
@@ -1449,7 +1473,1190 @@ class Layer extends BaseObject {
    /**
     * @returns the {@link Layer._verticesArray}, accounts for origin and is mutation free.
     */
-   getVerticeVoxels() {
+   getVerticeVoxels(): Voxel[] {
       return BaseObject.addOrigin(this._verticesArray, this._origin);
+   }
+}
+
+interface GroupRankingValue {
+   "i": [number, number],
+   "n": boolean
+}
+
+interface GroupRanking {
+   [key: string]: GroupRankingValue
+}
+
+/**
+ * @remarks 
+ * This type assertion is used for checking if a given string is a valid key of {@link SYNTAX_REGEX} 
+ */
+type REGEX_NAME_KEYS = keyof typeof SYNTAX_REGEX;
+/**
+ * @remarks 
+ * This type assertion is used for checking if a given string is a valid key of {@link OPS} 
+ */
+type OPS_TOKEN = keyof typeof OPS;
+/**
+ * @remarks
+ * This recursive type is used for the abstract syntax tree of various levels of embedded strings arrays. 
+ * The deeper the level of a string array is equal to the order of presedence the operation should be interpeted by:
+ * 
+ * [["A","+","B"],"*","C"] is equal to (A+B)*C
+ * 
+ * This AST should be exeucuted by doing A+B first and then multiply by C. 
+ */
+type AST = (string | AST)[];
+
+/**
+ * @remarks
+ * Contains all of the syntax tokens used by the {@link SetOperationsParser}.
+ */
+const SYNTAX_TOKENS = {
+   /**
+    * @remarks
+    * U+03A9
+    */
+   UNIVERSAL_SET: "Ω",
+   /**
+    * @remarks
+    * U+2205
+    */
+   NULL_SET: "∅",
+   /**
+    * @remarks
+    * U+222A 
+    * 
+    * Not Latin Letter U with value U+0055
+    */
+   UNION_OP: "∪",
+   /**
+    * @remarks
+    * U+2229
+    */
+   INTERSECTION_OP: "∩",
+   /**
+    * @remarks
+    * U+002D
+    */
+   SUBTRACTION_OP: "-",
+   /**
+    * @remarks
+    * U+2295
+    */
+   SYMM_DIFF_OP: "⊕",
+   /**
+    * @remarks
+    * U+0021
+    */
+   NEGATION_OP: "!",
+   /**
+    * @remarks
+    * U+0028
+    */
+   OPEN_PER: "(",
+   /**
+    * @remarks
+    * U+0029
+    */
+   CLOSE_PER: ")",
+   /**
+    * @remarks
+    * U+002D
+    */
+   IDENTATION: "-",
+   NOT_PLACE_HOLDER: "@"
+} as const
+
+/**
+ * @remarks
+ * Holds the valid modes as accepted by the {@link SetOperationsParser.useRegex}
+ */
+export enum SetOperationsParserAction {
+   /**
+    * @remarks
+    * This mode signifies to use the {@link RegExp.test} method upon the given string. 
+    */
+   TEST_MODE = 'TEST_MODE',
+   /**
+    * @remarks
+    * This mode signifies to use the {@link String.match} method upon the given string. 
+    */
+   MATCH_MODE = 'MATCH_MODE',
+}
+
+/**
+ * @remarks
+ * Holds all of the {@link RegExp} used by {@link SetOperationsParser.validateEquation} to check for syntax errors and 
+ * convert to a valid format for {@link SetOperationsParser.generateAST}.
+ */
+const SYNTAX_REGEX = {
+   /**
+    * @remarks
+    * Regular expression to split an equation string into the sub-tokens: 
+    * 
+    * /\\!*\\(|\\)|\\!*[a-zΩ∅]+|[∩⊕∪-]/gi
+    * 
+    * Splits at either:
+    * 
+    * 1) Zero or more negations followed by a opening grouping
+    * 2) A closing grouping
+    * 3) Zero or more negations followed by a varaible name or default set 
+    * 4) A set operation
+    * 
+    * Flags:
+    * 
+    * 1) Global
+    * 2) Case Insensitive
+    */
+   "CONVERSION_REGEX": new RegExp(`\\${SYNTAX_TOKENS.NEGATION_OP}*\\${SYNTAX_TOKENS.OPEN_PER}|\\${SYNTAX_TOKENS.CLOSE_PER}|\\${SYNTAX_TOKENS.NEGATION_OP}*[a-z${SYNTAX_TOKENS.UNIVERSAL_SET}${SYNTAX_TOKENS.NULL_SET}]+|[${SYNTAX_TOKENS.INTERSECTION_OP}${SYNTAX_TOKENS.SYMM_DIFF_OP}${SYNTAX_TOKENS.UNION_OP}${SYNTAX_TOKENS.SUBTRACTION_OP}]`, "gi"),
+   /**
+ * @remarks
+ * Regular expression to check for invalid negation of a closing grouping: 
+ * 
+ * /\\!+\\)/gi
+ * 
+ * Splits at:
+ * 
+ * 1) One or more negations followed by an closing grouping
+ * 
+ * Flags:
+ * 
+ * 1) Global
+ * 2) Case Insensitive
+ */
+   "INVALID_NEGATION_CLOSE_PER_REGEX": new RegExp(`\\${SYNTAX_TOKENS.NEGATION_OP}+\\${SYNTAX_TOKENS.CLOSE_PER}`, "gi"),
+   /**
+     * @remarks
+     * Regular expression to check for opening grouping
+     * 
+     * /\\(/gi
+     * 
+     * Splits at:
+     * 
+     * 1) Each and every opening grouping
+     * 
+     * Flags:
+     * 
+     * 1) Global
+     * 2) Case Insensitive
+     */
+   "CLOSE_PER_COUNT_REGEX": new RegExp(`\\${SYNTAX_TOKENS.CLOSE_PER}`, "gi"),
+   /**
+ * @remarks
+ * Regular expression to check for opening grouping
+ * 
+ * /\\)/gi
+ * 
+ * Splits at:
+ * 
+ * 1) Each and every closing grouping
+ * 
+ * Flags:
+ * 
+ * 1) Global
+ * 2) Case Insensitive
+ */
+   "OPEN_PER_COUNT_REGEX": new RegExp(`\\${SYNTAX_TOKENS.OPEN_PER}`, "gi"),
+   /**
+   * @remarks
+   * Regular expression to check for invalid equation endings
+   * 
+   * /[(!∩⊕∪-]$/gi
+   * 
+   * Splits at a ending of:
+   * 
+   * 1) Opening grouping, set operation
+   * 
+   * Flags:
+   * 
+   * 1) Global
+   * 2) Case Insensitive
+   */
+   "INVALID_ENDING_REGEX": new RegExp(`[${SYNTAX_TOKENS.OPEN_PER}${SYNTAX_TOKENS.NEGATION_OP}${SYNTAX_TOKENS.INTERSECTION_OP}${SYNTAX_TOKENS.SYMM_DIFF_OP}${SYNTAX_TOKENS.UNION_OP}${SYNTAX_TOKENS.SUBTRACTION_OP}]$`),
+   /**
+    * @remarks
+    * Regular expression to check for invalid negation
+    * 
+    * /\\!+[-⊕]/gi
+    * 
+    * Splits at:
+    * 
+    * 1) One or more negations followed by a subtraction or symmertic difference
+    * 
+    * Note: These operations can only be negated if the encapsulated grouping is negated
+    * !(a-b) instead of (a!-b)
+    * 
+    * Flags:
+    * 
+    * 1) Global
+    * 2) Case Insensitive
+    */
+   "INVALID_OP_DIRECT_NEGATE_REGEX": new RegExp(`\\${SYNTAX_TOKENS.NEGATION_OP}+[${SYNTAX_TOKENS.SUBTRACTION_OP}${SYNTAX_TOKENS.SYMM_DIFF_OP}]`, "gi"),
+   /**
+   * @remarks
+   * Regular expression to check for invalid junction
+   * 
+   * /[Ω∅)a-z]+\\(|\\(\\)|[∩⊕∪-]+\\)|[Ω∅]{2,}/gi
+   * 
+   * Splits at either:
+   *
+   * 1) A varaible or defualt set followed by an opening grouping
+   * 2) A opening grouping followed by closing grouping
+   * 3) A operation followed by an closing grouping
+   * 4) Two or more defualt sets next to each other
+   * 
+   * Flags:
+   * 
+   * 1) Global
+   * 2) Case Insensitive
+   */
+   "INVALID_JUNCTION_REGEX": new RegExp(`[${SYNTAX_TOKENS.UNIVERSAL_SET}${SYNTAX_TOKENS.NULL_SET}${SYNTAX_TOKENS.CLOSE_PER}a-z]+\\${SYNTAX_TOKENS.OPEN_PER}|\\${SYNTAX_TOKENS.OPEN_PER}\\${SYNTAX_TOKENS.CLOSE_PER}|[${SYNTAX_TOKENS.INTERSECTION_OP}${SYNTAX_TOKENS.SYMM_DIFF_OP}${SYNTAX_TOKENS.UNION_OP}${SYNTAX_TOKENS.SUBTRACTION_OP}]+\\${SYNTAX_TOKENS.CLOSE_PER}|[${SYNTAX_TOKENS.UNIVERSAL_SET}${SYNTAX_TOKENS.NULL_SET}]{2,}`, "gi"),
+   /**
+  * @remarks
+  * Checks if a given character is a valid character as defined by static syntax.
+  * This expression is ran against each character in the string using {@link RegExp.test()} syntax.
+  * 
+  * /\\s|[a-z]|[Ω∅∪∩⊕!()-]/gi
+  * 
+  * Splits at either:
+  *
+  * 1) White space
+  * 2) a-z varaible name
+  * 3) Operation, negation, or groupings
+  * 
+  * Flags:
+  * 
+  * 1) Global
+  * 2) Case Insensitive
+  */
+   "VALID_CHAR_REGEX": new RegExp(`\\s|[a-z]|[${SYNTAX_TOKENS.UNIVERSAL_SET}${SYNTAX_TOKENS.NULL_SET}${SYNTAX_TOKENS.UNION_OP}${SYNTAX_TOKENS.INTERSECTION_OP}${SYNTAX_TOKENS.SYMM_DIFF_OP}${SYNTAX_TOKENS.NEGATION_OP}${SYNTAX_TOKENS.OPEN_PER}${SYNTAX_TOKENS.CLOSE_PER}${SYNTAX_TOKENS.SUBTRACTION_OP}]`, "gi")
+} as const
+/**
+    * @remarks
+    * The rankings of all of the equation syntax. The program decides what operations to do first based on ranking and then on left to right order
+    *
+    * 1) Opening Grouping: 3
+    * 2) Closing Grouping: 3
+    * 3) Negation: 2
+    * 4) Symmertic Difference: 1
+    * 5) Subtraction, Intersection, Union: 0
+    * 
+   */
+const OPS = {
+   [SYNTAX_TOKENS.OPEN_PER]: 3,
+   [SYNTAX_TOKENS.CLOSE_PER]: 3,
+   [SYNTAX_TOKENS.NEGATION_OP]: 2,
+   [SYNTAX_TOKENS.SYMM_DIFF_OP]: 1,
+   [SYNTAX_TOKENS.SUBTRACTION_OP]: 0,
+   [SYNTAX_TOKENS.INTERSECTION_OP]: 0,
+   [SYNTAX_TOKENS.UNION_OP]: 0
+} as const
+/**
+ * A final all static parser to convert discrete math equations into valid abstract syntax trees {@link AST}.
+ */
+export class SetOperationsParser {
+   /**
+    * @remarks
+    * Private constructor to support final class functionality
+    */
+   private constructor() { }
+   /**
+    * @remarks
+    * Retrives a mutation-free copy of the {@link SYNTAX_REGEX}
+    * @returns A dictionary where the key string is the name of the regex value.
+    */
+   static getAllRegex(): Record<string, RegExp> {
+      return Object.keys(SYNTAX_REGEX).reduce<Record<string, RegExp>>((prev, key) => {
+         return prev[key] = new RegExp(SYNTAX_REGEX[key as REGEX_NAME_KEYS].source, "gi"), prev;
+      }, {});
+   }
+   /**
+    * @remarks
+    * Retrieves the order of operations presidence of a given token in reference to other valid tokens
+    * @param token A valid key within {@link OPS}.
+    * @returns The value inclusively between 3 and 0 of the tokens order of operations.
+    */
+   static accessOPS(token: keyof typeof OPS): 3 | 2 | 1 | 0 {
+      return OPS[token];
+   }
+   /**
+    * @remarks
+    * Retrieves a mutation-free copy of the {@link OPS}
+    * @returns A dictionary where the key string is the token, and the value is the presdience.
+    */
+   static getOPS(): Record<string, number> {
+      return Object.assign({}, OPS);
+   }
+   /**
+    * @remarks
+    * The valid tokens for the {@link SetOperationsParser} as defined by {@link SYNTAX_TOKENS}
+    * @returns A dictionary where the key string is the name of the token, and the value is the token string.
+    */
+   static getSymbols(): Record<string, string> {
+      return {
+         UNIVERSAL_SET: SYNTAX_TOKENS.UNIVERSAL_SET,
+         NULL_SET: SYNTAX_TOKENS.NULL_SET,
+         UNION_OP: SYNTAX_TOKENS.UNION_OP,
+         INTERSECTION_OP: SYNTAX_TOKENS.INTERSECTION_OP,
+         SUBTRACTION_OP: SYNTAX_TOKENS.SUBTRACTION_OP,
+         SYMM_DIFF_OP: SYNTAX_TOKENS.SYMM_DIFF_OP,
+         NEGATION_OP: SYNTAX_TOKENS.NEGATION_OP,
+         OPEN_PER: SYNTAX_TOKENS.OPEN_PER,
+         CLOSE_PER: SYNTAX_TOKENS.CLOSE_PER,
+         IDENTATION: SYNTAX_TOKENS.IDENTATION,
+      }
+   }
+   /**
+    * @remarks
+    * Allows for use of the private syntax error checking RegExp outside of the {@link SetOperationsParser.validateEquation} context.
+    * The {@link SYNTAX_REGEX} are mutable due to the global flag. By using this method, the {@link RegExp.lastIndex} is reset each call 
+    * to prevent mutations across mutiple calls. Otherwise, pattern matching would return alternating results.
+    * @param name The name of the regular expression from {@link SYNTAX_REGEX}.
+    * @param str The string that will be pattern matched or tested against the RegExp.
+    * @param action The mode to specify either a matching to return a string array, or a test mode to return a boolean. Modes as per {@link SetOperationsParserAction}
+    * @returns 
+    */
+   static useRegex(name: REGEX_NAME_KEYS, str: string, action: keyof typeof SetOperationsParserAction) {
+      let regex: RegExp = new RegExp(SYNTAX_REGEX[`${name}`].source, "gi");
+      let matchResult: string[] | null;
+      let boolResult = false;
+      if (action === SetOperationsParserAction.TEST_MODE) {
+         boolResult = regex.test(str);
+         regex.lastIndex = 0;
+         return boolResult;
+      } else if (action === SetOperationsParserAction.MATCH_MODE) {
+         matchResult = str.match(regex);
+         regex.lastIndex = 0;
+         return matchResult === null ? [] : matchResult
+      } else {
+         throw new TypeError("Invalid Action: " + action)
+      }
+   }
+   /**
+    * @remarks
+    * Takes in a string equation, checks for syntax errors via the {@link SYNTAX_REGEX}, reduces reduces complexity via basic identities, 
+    * returns an array of tokens in {@link SetOperationsParser.generateAST} format via {@link SYNTAX_REGEX.CONVERSION_REGEX} 
+    * @param str Equation in a string format.
+    * @returns Valid AST generation format for input into {@link SetOperationsParser.generateAST}.
+    * @throws {@link TypeError} If a syntax error is encountered. 
+    */
+   static validateEquation(str: string): string[] {
+      // Filter whitespace
+      str = str.split("").filter(x => !/\s/.test(x)).join("")
+
+      /**
+       * @remarks
+       * Used to store tokens, both for comparison and error throwing, throughout the validation process.
+       */
+      let errorTokens: string[] | boolean;
+
+      // Invalid characters are those not a-zA-Z and are not static symbols
+      for (let i = 0; i < str.length; i++) {
+         errorTokens = SetOperationsParser.useRegex("VALID_CHAR_REGEX", str[i], SetOperationsParserAction.TEST_MODE);
+         if (!errorTokens) {
+            throw new TypeError(`VALID_CHAR_REGEX | Unable to validate equationString "${str}": Invalid token ${str[i]}`)
+         }
+      }
+
+      errorTokens = SetOperationsParser.useRegex("INVALID_NEGATION_CLOSE_PER_REGEX", str, SetOperationsParserAction.TEST_MODE);
+
+      if (errorTokens instanceof Array && errorTokens.length > 0) {
+         throw new TypeError(`INVALID_NEGATION_CLOSE_PER_REGEX | Unable to validate equationString "${str}": Cannot pre negate "${SYNTAX_TOKENS.NEGATION_OP}" closing grouping syntax "${SYNTAX_TOKENS.CLOSE_PER}" with tokens "${errorTokens[0]}" `)
+      }
+
+
+
+      let cper = SetOperationsParser.useRegex("CLOSE_PER_COUNT_REGEX", str, SetOperationsParserAction.MATCH_MODE);
+      let oper = SetOperationsParser.useRegex("OPEN_PER_COUNT_REGEX", str, SetOperationsParserAction.MATCH_MODE);
+      if (oper instanceof Array && cper instanceof Array && cper.length !== oper.length) {
+         throw new TypeError(`CLOSE_PER_COUNT_REGEX, OPEN_PER_COUNT_REGEX | Unable to validate equationString "${str}": unequal amount of starting and ending grouping syntax`)
+      }
+
+      errorTokens = SetOperationsParser.useRegex("INVALID_ENDING_REGEX", str, SetOperationsParserAction.MATCH_MODE)
+
+      if (errorTokens instanceof Array && errorTokens.length > 0) {
+         throw new TypeError(`INVALID_ENDING_REGEX | Unable to validate equationString "${str}": Ends with operator, negation or opening grouping syntax "${errorTokens}"`);
+      }
+
+
+      errorTokens = SetOperationsParser.useRegex("INVALID_OP_DIRECT_NEGATE_REGEX", str, SetOperationsParserAction.MATCH_MODE)
+
+      if (errorTokens instanceof Array && errorTokens.length > 0) {
+         throw new TypeError(`INVALID_OP_DIRECT_NEGATE_REGEX | Unable to validate equationString "${str}": Cannot directly negate symmetric difference or subtraction operator "${errorTokens}"`)
+      }
+
+      errorTokens = SetOperationsParser.useRegex("INVALID_JUNCTION_REGEX", str, SetOperationsParserAction.MATCH_MODE)
+
+      if (errorTokens instanceof Array && errorTokens.length > 0) {
+         throw new TypeError(`INVALID_JUNCTION_REGEX | Unable to validate equationString "${str}": Invalid Junction between two tokens "${errorTokens}"`)
+      }
+      /* 
+        Replace negation operations, Optimization
+      */
+      str = str.replaceAll(`${SYNTAX_TOKENS.NEGATION_OP}${SYNTAX_TOKENS.NEGATION_OP}`, "")
+      str = str.replaceAll(`${SYNTAX_TOKENS.NEGATION_OP}${SYNTAX_TOKENS.INTERSECTION_OP}`, `${SYNTAX_TOKENS.UNION_OP}`)
+      str = str.replaceAll(`${SYNTAX_TOKENS.NEGATION_OP}${SYNTAX_TOKENS.UNION_OP}`, `${SYNTAX_TOKENS.INTERSECTION_OP}`)
+      str = str.replaceAll(`${SYNTAX_TOKENS.NEGATION_OP}${SYNTAX_TOKENS.UNIVERSAL_SET}`, `${SYNTAX_TOKENS.NULL_SET}`)
+      str = str.replaceAll(`${SYNTAX_TOKENS.NEGATION_OP}${SYNTAX_TOKENS.NULL_SET}`, `${SYNTAX_TOKENS.UNIVERSAL_SET}`)
+      // Remove the grouping if they are the first and last elements in the string
+      if (oper instanceof Array && cper instanceof Array && cper.length === 1 && oper.length === 1 && str[0] === SYNTAX_TOKENS.OPEN_PER && str[str.length - 1] === SYNTAX_TOKENS.CLOSE_PER) {
+         str = str.replace(`${SYNTAX_TOKENS.OPEN_PER}`, "").replace(`${SYNTAX_TOKENS.CLOSE_PER}`, "");
+      }
+      return SetOperationsParser.useRegex("CONVERSION_REGEX", str, SetOperationsParserAction.MATCH_MODE) as string[];
+   }
+   /**
+    * @remarks
+    * Distributes the negation operation to a AST, recursively goes down all levels of the AST. Any branches that start with "NOT" as the first token in the expression will not be distrubuted to.
+    * @param eq The AST
+    * @param log boolean to siginify if the program should log the process to the console.
+    * @param depth Level of depth for this current recursive call. Can be any number 0 and above.
+    * @returns The negated AST.
+    */
+   static _distrubuteNegate(eq: AST, log: boolean, depth: number): AST {
+      let str = "";
+      for (let i = 0; i < depth; i++) {
+         str += SYNTAX_TOKENS.IDENTATION;
+      }
+      if (log) {
+         console.log(str + "Distrubting negation to: " + JSON.stringify(eq))
+      }
+      for (let i = 0; i < eq.length; i++) {
+         if (eq[i] === SYNTAX_TOKENS.SYMM_DIFF_OP) {
+            throw new TypeError("Processing error: can not directly negate SYMM_DIFF_OP: " + eq[i])
+         }
+         if (Array.isArray(eq[i]) && eq[i] as AST) {
+            if (log) {
+               console.log(str + " Activiated distribution to sub-AST")
+            }
+            eq[i] = SetOperationsParser._distrubuteNegate(eq[i] as AST, log, depth)
+         } else if (eq[i] === SYNTAX_TOKENS.UNION_OP) {
+            eq[i] = SYNTAX_TOKENS.INTERSECTION_OP
+         } else if (eq[i] === SYNTAX_TOKENS.INTERSECTION_OP) {
+            eq[i] = SYNTAX_TOKENS.UNION_OP
+         } else if (eq[i] === SYNTAX_TOKENS.NEGATION_OP) {
+            eq[i] = ""
+         } else if (typeof eq[i] === 'string' && (eq[i] as string).split("")[0] === SYNTAX_TOKENS.NEGATION_OP) {
+            eq[i] = eq[i].slice(1, eq[i].length)
+         } else if (eq[i] === SYNTAX_TOKENS.SUBTRACTION_OP) {
+            if (log) {
+               console.log(str + "Subtraction negation detected, switching to union and halting")
+            }
+            // Cuts off last operation to satifsy !(a-b) = !a U b;
+            eq[i] = SYNTAX_TOKENS.UNION_OP;
+            return eq;
+         } else if (eq[i] === SYNTAX_TOKENS.UNIVERSAL_SET) {
+            eq[i] = SYNTAX_TOKENS.NULL_SET;
+         } else if (eq[i] === SYNTAX_TOKENS.NULL_SET) {
+            eq[i] = SYNTAX_TOKENS.UNIVERSAL_SET;
+         } else {
+            eq[i] = [SYNTAX_TOKENS.UNIVERSAL_SET, SYNTAX_TOKENS.SUBTRACTION_OP, eq[i]]
+            console.log(str + "Setting to Universal minus " + eq[i]);
+         }
+      }
+      return eq;
+   }
+   /**
+    * @remarks
+    * Generate and returns a abstract syntax tree {@link AST} that represents the presidence of solving the equation.
+    * @param eq The AST at this level. The inital input is an array of strings from {@link SetOperationsParser.validateEquation}.
+    * @param log boolean to siginify if the program should log the process to the console, default value of false.
+    * @param depth Level of depth for this current recursive call. Can be any number 0 (default) and above initally.
+    * @returns When the call stack collapses, the method will return an AST. During the recursive process, the method could flatten various levels of the AST
+    * to simplify expressions resulting in a string return type.
+    */
+   static generateAST(eq: AST, log: boolean, depth = 0): AST | string {
+      let string = ""
+      if (log) {
+         for (let i = 0; i <= depth; i++) {
+            string += SYNTAX_TOKENS.IDENTATION
+         }
+         console.log(string + "Input EQ: " + JSON.stringify(eq));
+         console.log(string + "Length of EQ: " + (eq.length))
+         depth += 1
+      }
+      /**
+   * @remarks
+   * The index of the variable on the left side of the operation.
+   */
+      let startIndex: number = -1;
+      /**
+       * @remarks
+       * The index of the variable on the right side of the operation.
+       */
+      let endIndex: number = -1;
+      /**
+      * @remarks
+      * The index of the operation.
+      */
+      let opIndex: number = -1;
+      /**
+       * @remarks
+       * The value of this operation as stored in {@link OPS} accessiable via {@link SetOperationsParser.accessOPS}
+       */
+      let indexValue: number = -1;
+      /**
+       * @remarks
+       * Stores the indicies of all of the opening grouping tokens, used to decide {@link perStartIndex}.
+       */
+      let startPerArray: number[] = [];
+      /**
+       * @remarks
+       * Stores the indicies of all of the closing grouping tokens, used to decide {@link perEndIndex}.
+       */
+      let endPerArray: number[] = [];
+      /**
+       * @remarks
+       * Stores the indicies of all of the negated opening grouping tokens, has overlap with {@link startPerArray}.
+       */
+      let negatedPerArray: number[] = [];
+      /** 
+       * @remarks
+       * Stores the indicies of all of the symmertic difference operations. This is important, because if a SD is within a negated
+       * grouping, special conversion processes need to take place before {@link SetOperationsParser._distrubuteNegate} 
+       * is called upon that section of the AST.
+       */
+      let symmPerArray: number[] = [];
+
+      if (eq.length <= 2) {
+         if (log) {
+            console.log(string + "Equation length is <= 2, returning equation")
+         }
+         return [...eq]
+      }
+
+      // The first step is to gather metadata about the AST.
+
+      for (let i = 0; i < eq.length; i++) {
+         let token = eq[i]
+         if (log) {
+            console.log(string + "Checking Token: " + JSON.stringify(token))
+         }
+         // Remove double or more negation
+
+         if (!Array.isArray(token) && token.startsWith("!!")) {
+            if (log) {
+               console.log(string + "Token starts with n >= 2 negation: " + token)
+            }
+            // If the negation amount is odd, make it a single negation. Otherwise, no negation.
+            let testToken = token.split("");
+            token = (testToken.slice(0, testToken.length - 1).length % 2 === 0 ? "" : SYNTAX_TOKENS.NEGATION_OP) + testToken[testToken.length - 1];
+            if (log) {
+               console.log(string + "Converted Token starts with n >= 2 negation: " + token)
+            }
+            eq[i] = token;
+         }
+
+         if (token === SYNTAX_TOKENS.SYMM_DIFF_OP) {
+            symmPerArray.push(i);
+         }
+
+         // Gather negated grouping information.
+         if (!Array.isArray(token) && token.startsWith(SYNTAX_TOKENS.NEGATION_OP)) {
+            if (log) {
+               console.log(string + "Token starts with negation")
+            }
+            token = token.split("")
+            if (token[1] === SYNTAX_TOKENS.OPEN_PER) {
+               if (log) {
+                  console.log(string + "Token is negating open Grouping")
+               }
+               negatedPerArray.push(i)
+            }
+            /*
+               * 1) This does not mutate the original eq equation, 
+               * Only changes the value of the token to exclude the negation: "!(" is changed to "(" locally only within the loop.
+               * This allows for startPerArray to also pick it up using an "token === SYNTAX_TOKENS.OPEN_PER" comaparision.
+               * 2) We also do this because typeScript is not smart enough to recongize that the "!Array.isArray(token)" guarding block
+               * is preventing any arrays (AST) from entering this section of code. 
+               * To TypeScript, any use of eq[i] can be either an AST or string, 
+               * regardless of the actual value at that index and any guarding block it is witihin.
+               * The solution is type asserstion as an key of OPS, while choosing a set numerical value (token[i] as OPS_TOKEN doesn't work)
+            */
+            token = token[1] as OPS_TOKEN;
+            if (!OPS.hasOwnProperty(token)) {
+               eq[i] = [SYNTAX_TOKENS.UNIVERSAL_SET, SYNTAX_TOKENS.SUBTRACTION_OP, token]
+               if (log) {
+                  console.log(string + "Activated Token is negating set: " + JSON.stringify(eq[i]))
+               }
+            }
+         }
+         if (token === SYNTAX_TOKENS.OPEN_PER) {
+            startPerArray.push(i)
+         }
+         else if (token == SYNTAX_TOKENS.CLOSE_PER) {
+            endPerArray.push(i)
+         }
+         /*
+         This IS a set operation token
+         AND
+         Either {
+           Index value IS undefined
+           OR
+           This token's index value is GREATER than the previous stored index value
+         }
+         AND NOT {
+            A symmertic difference operater AND followed by an negated opening group
+         }
+    
+         - In the edge case of: [[[["Ω","-","a"],"∩",["Ω","-","b"]],"∪",["a","∩","b"]],"⊕","!(","a","⊕","b",")"]
+         - This program will favor the first symmertic difference, and choose end varaible as "!(", causing an error.
+         - This is prevented by the AND NOT edge case check.
+         
+         */
+         else if (OPS.hasOwnProperty(token as OPS_TOKEN)
+            && (indexValue === undefined || OPS[token as OPS_TOKEN] > indexValue)
+            && !(token === SYNTAX_TOKENS.SYMM_DIFF_OP && eq[i + 1] === `${SYNTAX_TOKENS.NEGATION_OP}${SYNTAX_TOKENS.OPEN_PER}`)) {
+            if (log) {
+               console.log(string + "Activated operation identification loop condition")
+            }
+            indexValue = OPS[token as OPS_TOKEN];
+            endIndex = i + 1;
+            startIndex = i - 1;
+            opIndex = i;
+         }
+      }
+
+      // The base case is if the equation is 3 tokens including arrays
+      // However, instances such as ["!(",["a","⊕","b"],")"] may cause this to activate, 
+      // so their can't be parenthsis
+
+      if (eq.length === 3 && startPerArray.length === 0 && endPerArray.length === 0) {
+         if (log) {
+            console.log(string + "Activated EQ Length is 3");
+         }
+
+
+         // Optimizations
+         if (JSON.stringify(eq[0]) === JSON.stringify(eq[2])) {
+            if (eq[1] === SYNTAX_TOKENS.INTERSECTION_OP || eq[1] === SYNTAX_TOKENS.UNION_OP) {
+               if (log) {
+                  console.log(string + "Activated L3 Intersection or Union with self, returning self");
+               }
+               return depth === 1 ? [eq[0]] : eq[0]
+            }
+            if (eq[1] === SYNTAX_TOKENS.SYMM_DIFF_OP || eq[1] === SYNTAX_TOKENS.SUBTRACTION_OP) {
+               if (log) {
+                  console.log(string + "Activated L3 Symmertic Difference or subtraction with itself returning null");
+               }
+               return depth === 1 ? [SYNTAX_TOKENS.NULL_SET] : SYNTAX_TOKENS.NULL_SET
+            }
+         }
+         // If the left or right side of the equation is a null set
+         if (eq[0] === SYNTAX_TOKENS.NULL_SET || eq[2] === SYNTAX_TOKENS.NULL_SET) {
+            // Intersection them returns a null set
+            if (eq[1] === SYNTAX_TOKENS.INTERSECTION_OP) {
+               if (log) {
+                  console.log(string + "L3: Activated intersection null");
+               }
+               return SYNTAX_TOKENS.NULL_SET
+            } else if (eq[1] === SYNTAX_TOKENS.UNION_OP || eq[1] === SYNTAX_TOKENS.SYMM_DIFF_OP) {
+               if (log) {
+                  console.log(string + "L3: Activated union null");
+               }
+               return eq[0] === SYNTAX_TOKENS.NULL_SET ? depth === 1 ? [eq[2]] : eq[2] : depth === 1 ? [eq[0]] : eq[0]
+            } else if (eq[1] === SYNTAX_TOKENS.SUBTRACTION_OP) {
+               if (log) {
+                  console.log(string + "L3: Activiated set subtraction with null set");
+               }
+               /* In SQL, null minus null yeilds null so I apply this logic */
+               // null - set
+               if (eq[0] === SYNTAX_TOKENS.NULL_SET) {
+                  return depth === 1 ? [SYNTAX_TOKENS.NULL_SET] : SYNTAX_TOKENS.NULL_SET;
+               } else {
+                  // set - null
+                  return depth === 1 ? [eq[0]] : eq[0];
+               }
+            }
+         }
+         // a set minus the universal leaves nothing left over.
+         if (eq[1] === SYNTAX_TOKENS.SUBTRACTION_OP && eq[2] === SYNTAX_TOKENS.UNIVERSAL_SET) {
+            if (log) {
+               console.log(string + "L3: Activated minus universal set equals null")
+            }
+            return depth === 1 ? [SYNTAX_TOKENS.NULL_SET] : SYNTAX_TOKENS.NULL_SET;
+         }
+         // union to a universal set
+         if ((eq[1] === SYNTAX_TOKENS.UNION_OP) && (eq[0] === SYNTAX_TOKENS.UNIVERSAL_SET || eq[2] === SYNTAX_TOKENS.UNIVERSAL_SET)) {
+            if (log) {
+               console.log(string + "L3: Activated union universal set equals universal")
+            }
+            return depth === 1 ? [SYNTAX_TOKENS.UNIVERSAL_SET] : SYNTAX_TOKENS.UNIVERSAL_SET
+         }
+
+         // intersection to a universal set
+
+         if ((eq[1] === SYNTAX_TOKENS.INTERSECTION_OP) && (eq[0] === SYNTAX_TOKENS.UNIVERSAL_SET || eq[2] === SYNTAX_TOKENS.UNIVERSAL_SET)) {
+            if (log) {
+               console.log(string + "L3: Activated intersection universal set")
+            }
+            return eq[0] === SYNTAX_TOKENS.UNIVERSAL_SET ? depth === 1 ? [eq[2]] : eq[2] : depth === 1 ? [eq[0]] : eq[0]
+         }
+         if (log) {
+            console.log(string + "L3: Returning eq")
+         }
+         return [...eq];
+      }
+      if (symmPerArray.length > 0) {
+         if (log) {
+            console.log(string + "Amount of Symmertries: " + symmPerArray.length)
+         }
+      }
+      /// This should be detected if the equation is validated, but parser errors can happen.
+      if (startPerArray.length !== endPerArray.length) {
+         console.log(eq, startPerArray, endPerArray)
+         throw new Error("Invalid Amount of Grouping");
+      }
+
+      // From here, figure out the most embedded group of parenthesis.
+      let groupRanking: GroupRanking = {}
+      let groupCounter = 0;
+      // If their is closing or opening grouping.
+      let allPerArray = [...startPerArray, ...endPerArray]
+      while (allPerArray.length > 0) {
+         let perStartIndex: number = -1;
+         let perEndIndex: number = -1;
+         allPerArray = [...startPerArray, ...endPerArray]
+         // Create a list of all the indicies of the grouping
+         // For all opening paratntehis
+         startLoop: for (const openPerIter of startPerArray) {
+            // Set the new startIndex for the next equation subsection
+            perStartIndex = openPerIter;
+            // for each end grouping
+            endLoop: for (const endPerIter of endPerArray) {
+               // If the end grouping is before the opening e.x. (a-b)+(c+d) compaing closing of left to opening of right term.
+               if (endPerIter <= openPerIter) {
+                  // Continue because this is an invalid grouping.
+                  continue;
+               }
+               // Loop through all other grouping
+               for (const allPerIter of allPerArray) {
+                  // if any other parenteshsis fall between this start and end,
+                  // then this is not the most embedded group
+                  if (allPerIter > openPerIter && allPerIter < endPerIter) {
+                     continue endLoop;
+                  }
+               }
+               // If we manage to get through without causing a continue,
+               // then set the endIndex to this end paretthesis and break the process.
+               groupCounter++;
+               perEndIndex = endPerIter;
+               groupRanking[`${groupCounter}`] = {
+                  "i": [perStartIndex, perEndIndex],
+                  "n": eq[perStartIndex] === `${SYNTAX_TOKENS.NEGATION_OP}${SYNTAX_TOKENS.OPEN_PER}`
+               }
+               startPerArray = startPerArray.filter((v, i) => i !== startPerArray.indexOf(perStartIndex))
+               endPerArray = endPerArray.filter((v, i) => i !== endPerArray.indexOf(perEndIndex))
+               break startLoop;
+            }
+         }
+      }
+
+      let targetOpeningPer: number = -1;
+      let targetClosingPer: number = -1;
+      let negatedOpeningPer: number = -1;
+      let negatedClosingPer: number = -1;
+      let groupRankingKeys: string[] = Object.keys(groupRanking);
+      if (groupRankingKeys.length > 0) {
+         targetOpeningPer = groupRanking["1"]["i"][0];
+         targetClosingPer = groupRanking["1"]["i"][1];
+         let closetRanking: number = -1
+         for (let key of groupRankingKeys) {
+            // Find the negating grouping that is the closet depth to our current opening and closing.
+            if (groupRanking[key as keyof typeof groupRanking]["n"] &&
+               // Surronds the current non-negating grouping
+               groupRanking[key]["i"][0] <= targetOpeningPer &&
+               groupRanking[key]["i"][1] >= targetClosingPer &&
+               // This ranking is closer to 0 as possible
+               (Number(key) < closetRanking || closetRanking === -1)) {
+               closetRanking = Number(key);
+               negatedOpeningPer = groupRanking[key]["i"][0];
+               negatedClosingPer = groupRanking[key]["i"][1];
+            }
+         }
+      }
+      if (log) {
+         console.log(string + "Grouping Ranking" + JSON.stringify(groupRanking))
+         console.log(string + "Target Opening Grouping Index " + targetOpeningPer)
+         console.log(string + "Target Closing Grouping Index " + targetClosingPer)
+         console.log(string + "Target Negated Opening Grouping Index " + negatedOpeningPer)
+         console.log(string + "Target Negated Opening Grouping Index " + negatedClosingPer)
+      }
+      // If their is grouping that is being negated, their may be symmertic differences within that parenthesis that are being negated.
+
+      // If we have a negation somewhere in the array.
+      if (negatedClosingPer !== -1 && negatedOpeningPer != -1) {
+         if (log) {
+            console.log(string + "Activiated Symmertric Difference negation check")
+         }
+         // Check if a symmertic difference is between it at any level.
+         for (let i = 0; i < symmPerArray.length; i++) {
+            // If this symmsertic difference is between the negation grouping
+            if (symmPerArray[i] > negatedOpeningPer && symmPerArray[i] < negatedClosingPer) {
+               if (log) {
+                  console.log(string + `Symmertic difference at index ${symmPerArray[i]} is being negated.`)
+               }
+               eq[negatedOpeningPer] = `${SYNTAX_TOKENS.OPEN_PER}`
+               return SetOperationsParser.generateAST([...eq.slice(0, negatedOpeningPer), [SYNTAX_TOKENS.UNIVERSAL_SET, SYNTAX_TOKENS.SUBTRACTION_OP, SetOperationsParser.generateAST([...eq.slice(negatedOpeningPer + 1, negatedClosingPer)], log, depth)], ...eq.slice(negatedClosingPer + 1, eq.length)], log, depth)
+            }
+         }
+      }
+      // Otherwise, if the start index for the most embedded grouping is also being negated "!(a+b)"
+      else if (negatedClosingPer !== -1 && negatedOpeningPer != -1) {
+         if (log) {
+            console.log(string + "Activated Negated Grouping is startIndex")
+         }
+         // Previously, this operation on token did not mutate. Now we mutate the equation and remove the negative.
+         eq[targetOpeningPer] = SYNTAX_TOKENS.OPEN_PER
+         // Then, distrubute that grouping and all of the sub-groupings.
+         eq = [...eq.slice(0, targetOpeningPer), ...this._distrubuteNegate(eq.slice(targetOpeningPer + 1, targetClosingPer), log, depth), ...eq.slice(targetClosingPer + 1, eq.length)]
+         if (log) {
+            console.log(string + "Combined and negated equation: " + JSON.stringify(eq))
+         }
+         // Otherwise, if this grouping is not being negated, then group all of the elements within that group into a new array
+         // This gives presidence to that section of the AST.
+      } else if (targetOpeningPer !== -1 && targetClosingPer !== -1) {
+         if (log) {
+            console.log(string + "Activated startPerArray Length Condition because their are " + startPerArray.length + " opening grouping syntax, target grouping syntax is at EQ startIndex: " + targetOpeningPer)
+         }
+         eq = [...eq.slice(0, targetOpeningPer), SetOperationsParser.generateAST(eq.slice(targetOpeningPer + 1, targetClosingPer), log, depth), ...eq.slice(targetClosingPer + 1, eq.length)];
+      }
+      // Otherwise, no grouping, just a pure A+B+C for example.
+      else {
+         if (log) {
+            console.log(string + "Operation Index: " + opIndex)
+         }
+         // Turns ["A","+","B","+","C"] into [["A","+","B"],"+","C"]
+         eq = [...eq.slice(0, startIndex), SetOperationsParser.generateAST([eq[startIndex], eq[opIndex], eq[endIndex]], log, depth), ...eq.slice(endIndex + 1, eq.length)];
+      }
+      // After all of this, put it back through the the parser again.
+      // Need to use new varaible here because EQ is always an array, and since the collapse of the call may return a
+      // string, we need to allow it to accept both because typescript.
+      let newEq: string | AST = SetOperationsParser.generateAST(eq, log, depth)
+      if (log) {
+         console.log(string + "Equation is finalized, pushing to the tree")
+      }
+      console.log(string + JSON.stringify(newEq))
+      // Then, pass this section of the AST back into the final AST. Collapse and return final result if at bottom of call stack.
+      return newEq
+   }
+}
+/**
+ * @remarks
+ * Acts as a interface to {@link SetOperationsParser} with pass through methods and the storage of equation data.
+ */
+export class SetOperationsEquation {
+   /**
+    * @remarks
+    * Stores the current equation pre-AST generation
+    */
+   equationString: string;
+   /**
+    * If the {@link SetOperationsParser.generateAST} should produce a log to the console.
+    */
+   log: boolean;
+   /**
+    * The output of passing {@link SetOperationsEquation.equationString} through {@link SetOperationsParser.validateEquation}
+    */
+   validEquationArray: string[];
+   /**
+    * The output of passing {@link SetOperationsEquation.validEquationArray} through {@link SetOperationsParser.generateAST}.
+    * This AST is stored as private to create a mutation-free storage. 
+    */
+   private equationAST: AST = [];
+   /**
+    * @remarks
+    * Constructs a new {@link SetOperationsEquation}. 
+    * @param str The string equation to create a new AST from
+    * @param log Log production flag for {@link SetOperationsParser.generateAST}
+    */
+   constructor(str: string, log: boolean) {
+      this.equationString = str;
+      this.log = log;
+      this.validEquationArray = [];
+   }
+   /**
+    * @remarks
+    * Accepts a new string as the {@link SetOperationsEquation.equationString}, resets all attributes accept {@link SetOperationsEquation.log} 
+    * @param str New equation strng
+    */
+   changeEquation(str: string) {
+      this.equationString = str;
+      this.validEquationArray = [];
+      this.equationAST = [];
+   }
+   /**
+    * @remarks
+    * To be called before {@link SetOperationsEquation.generateAST}.
+    * Pass through functon to {@link SetOperationsParser.validateEquation} with {@link SetOperationsEquation.equationString} as the arguement.
+    */
+   validateEquation() {
+      this.validEquationArray = SetOperationsParser.validateEquation(this.equationString);
+   }
+   /**
+    * @remarks
+    * To be called after {@link SetOperationsEquation.validateEquation}.
+    * Pass through functon to {@link SetOperationsParser.generateAST} with arguments {@link SetOperationsEquation.validEquationArray}, 
+    * {@link SetOperationsEquation.log}, and inital depth of zero.
+    */
+   generateAST() {
+      this.equationAST = SetOperationsParser.generateAST([...this.validEquationArray], this.log, 0) as AST;
+   }
+   /**
+    * @remarks
+    * Returns stored AST
+    * @returns Uses {@link JSON.parse} of {@link JSON.stringify} to return a deep copy of the AST.
+    */
+   getAST(): AST {
+      return JSON.parse(JSON.stringify(this.equationAST));
+   }
+}
+
+export interface CompositeOptions {
+   "controller": UUIDController,
+   "origin": Voxel
+   "compositeObjects": BaseObject[]
+   "log": boolean,
+   "variableNames": Record<string, BaseObject>
+}
+
+export interface CollectionOptions {
+   "controller": UUIDController,
+   "origin": Voxel
+   "fillVoxels": | Voxel[]
+}
+
+/**
+ * Acts as a median to {@link BaseObject} when the user may simply want to store voxels without them belonging to a particular shape.
+ * 
+ * Used by {@link CompositeVoxelGroup} to temporarily hold the intersection voxels between shapes 
+ * 
+ * Alows the user to pass in an array of voxels for storage
+ */
+class VoxelCollection extends BaseObject {
+   constructor(options: CollectionOptions) {
+      super({
+         "controller": options.controller,
+         "origin": options.origin
+      })
+      this._fillVoxels = BaseObject.push2D(options.fillVoxels, this._fillVoxels)
+      this.calculateBoundingBox()
+   }
+}
+
+export type InterpeterAST = (string | BaseObject | InterpeterAST)[]
+export type InterpeterToken = string | BaseObject
+
+export class CompositeVoxelGroup extends BaseObject {
+   equationInstance: SetOperationsEquation
+   compositeObjects: BaseObject[]
+   virtualCache: Record<string, BaseObject>
+   tokens: Record<string, string>
+   variableNames: Record<string, BaseObject>
+   constructor(options: CompositeOptions) {
+      super({
+         "controller": options.controller,
+         "origin": options.origin
+      })
+      this.equationInstance = new SetOperationsEquation("", options.log)
+      this.compositeObjects = options.compositeObjects
+      this._fillVoxels = []
+      for (let i = 0; i < this.compositeObjects.length; i++) {
+         BaseObject.push2D(this.compositeObjects[i].getFillVoxels(), this._fillVoxels)
+      }
+      this.calculateBoundingBox()
+      this.tokens = SetOperationsParser.getSymbols();
+      this.virtualCache = {
+         [this.tokens.UNIVERSAL_SET]: new VoxelCollection({ controller: this.controller, fillVoxels: this.compositeObjects.reduce((accum, obj) => { return BaseObject.push2D(obj.getFillVoxels(), accum), accum }, []), origin: this._origin }),
+         [this.tokens.NULL_SET]: new VoxelCollection({ controller: this.controller, fillVoxels: [], origin: this._origin })
+      }
+      this.variableNames = options.variableNames
+   }
+   changeCompositeObjects(compositeObjects: BaseObject[], variableNames: Record<string, BaseObject>): void {
+      this.variableNames = variableNames
+      this.compositeObjects = compositeObjects
+   }
+   generateAST(equation: string): void {
+      this.equationInstance.changeEquation(equation)
+      this.equationInstance.validateEquation()
+      this.equationInstance.generateAST()
+   }
+   #recursiveSolver(layer: InterpeterAST, depth: number): BaseObject {
+      // need to deal with one length equations
+      let token1: InterpeterToken = ""
+      let operation: InterpeterToken = ""
+      let token2: InterpeterToken = ""
+      let str = "";
+      for (let i = 0; i < depth; i++) {
+         str += "-"
+      }
+      for (let i = 0; i < layer.length; i++) {
+         if (Array.isArray(layer[i])) {
+            layer[i] = this.#recursiveSolver(layer[i] as InterpeterAST, depth + 1);
+         }
+      }
+      token1 = layer[0] as InterpeterToken
+      if (layer.length !== 1) {
+         operation = layer[1] as string
+         token2 = layer[2] as InterpeterToken
+      }
+      // Default sets are not avaiable in the users memory address.
+      try {
+         if (typeof token1 === "string" && (token1 === this.tokens.UNIVERSAL_SET || token1 === this.tokens.NULL_SET)) {
+            token1 = this.virtualCache[token1]
+         } else if (typeof token1 === "string") {
+            token1 = this.variableNames[token1]
+         }
+      } catch (e) {
+         console.warn("Interpet Error: logging heap and names")
+         console.warn(this.virtualCache)
+         console.warn(this.variableNames)
+         throw new ReferenceError("Unable to find the heap address for token1: " + token1)
+      }
+      try {
+         if (typeof token2 === "string" && (token2 === this.tokens.UNIVERSAL_SET || token2 === this.tokens.NULL_SET)) {
+            token2 = this.virtualCache[token2]
+         } else if (typeof token2 === "string") {
+            token2 = this.variableNames[token2]
+         }
+      } catch (e) {
+         console.warn("Interpet Error: logging heap and names")
+         console.warn(this.virtualCache)
+         console.warn(this.variableNames)
+         throw new ReferenceError("Unable to find the heap address or variableNames address for token2: " + token2)
+      }
+      let memoryQueryOne = token1.uuid + operation + token2.uuid;
+      let memoryQueryTwo = token2.uuid + operation + token1.uuid;
+      // First, check the cache to see if these operations have been done before. 
+
+      let currentHeapKeys: string[] = Object.keys(this.virtualCache)
+
+      if (currentHeapKeys.indexOf(memoryQueryOne) !== -1) {
+         return this.virtualCache[memoryQueryOne]
+         // If the operation is a union, the order does not matter.
+      } else if ((operation === this.tokens.UNION_OP || operation === this.tokens.INTERSECTION_OP) && currentHeapKeys.indexOf(memoryQueryTwo) !== -1) {
+         return this.virtualCache[memoryQueryTwo]
+      }
+
+      /**
+       * Optimization
+       */
+
+      if (token1.uuid === token2.uuid) {
+         if (operation === this.tokens.INTERSECTION_OP || operation === this.tokens.UNION_OP) {
+            this.virtualCache[memoryQueryOne] = new VoxelCollection({
+               controller: this.controller,
+               fillVoxels: token1.getFillVoxels(),
+               origin: token1.getOrigin()
+            });
+         } else if (operation === this.tokens.SUBTRACTION_OP || operation === this.tokens.SYMM_DIFF_OP) {
+            // Do some pointer assignments so 
+            this.virtualCache[memoryQueryOne] = this.virtualCache[this.tokens.NULL_SET]
+         }
+         return this.virtualCache[memoryQueryOne]
+      }
+
+      /**
+       * Intersection Calculautions
+       */
+
+      let token1JointBox: BoundingBox[] = token1.jointBoundingBox.getAllJointBoundingBoxes(JointBoundingBoxActions.RETURN_MODE_VOXELS_DIRECTORY) as BoundingBox[]
+      let token2JointBox: BoundingBox[] = token2.jointBoundingBox.getAllJointBoundingBoxes(JointBoundingBoxActions.RETURN_MODE_VOXELS_DIRECTORY) as BoundingBox[]
+
+      let intersectionArr: BoundingBox[] = []
+
+      for (let box1 of token1JointBox) {
+         for (let box2 of token2JointBox) {
+            // need to make these static
+            let intersection = BoundingBox.boundingBoxIntersect(box1.boundingBox, box2.boundingBox);
+            if (intersection[0]) {
+               // Add these intersected sub box to the intersection box array.
+               intersectionArr.push(new BoundingBox({
+                  "boundingInputPayload": intersection[1] as CompleteBoundingBox,
+                  "inputType": BoundingBoxPayloadModes.TYPE_BOUNDING_DIRECTORY
+               }))
+            }
+         }
+      }
+      let intersectionJoint = new JointBoundingBox(intersectionArr);
+      // What voxels from token 1 and 2 are in the overlapping. Only pulls from token 1 to prevent duplicates.
+      let joint: Voxel[] = []
+      // What are not in the joint. These coordinates could never overlap if both were unioned
+      let token1NotInJoint: Voxel[] = []
+      let token2NotInJoint: Voxel[] = []
+      // Grab the voxels for each token
+      let token1Voxels = token1.getFillVoxels();
+      let token2Voxels = token2.getFillVoxels();
+      for (let voxel of token1Voxels) {
+         if (!intersectionJoint.isInside(voxel)) {
+            token1NotInJoint.push(voxel);
+         } else {
+            joint.push(voxel)
+         }
+      }
+      for (let voxel of token2Voxels) {
+         if (!intersectionJoint.isInside(voxel)) {
+            token2NotInJoint.push(voxel);
+         }
+      }
+      let newFillVoxels: Voxel[] = []
+      if (operation === this.tokens.INTERSECTION_OP) {
+         if (joint.length === 0) {
+            this.virtualCache[memoryQueryOne] = this.virtualCache[this.tokens.NULL_SET]
+            return this.virtualCache[this.tokens.NULL_SET]
+         } else {
+            newFillVoxels = joint
+         }
+      }
+      else if (operation === this.tokens.UNION_OP) {
+         BaseObject.push2D(newFillVoxels, token1NotInJoint)
+         BaseObject.push2D(newFillVoxels, token2NotInJoint)
+         BaseObject.push2D(newFillVoxels, joint)
+      }
+      else if (operation === this.tokens.SUBTRACTION_OP) {
+         BaseObject.push2D(newFillVoxels, token1NotInJoint)
+      }
+      else if (operation === this.tokens.SYMM_DIFF_OP) {
+         BaseObject.push2D(newFillVoxels, token1NotInJoint)
+         BaseObject.push2D(newFillVoxels, token2NotInJoint)
+      } else {
+         throw new ReferenceError("Unknown operation: " + operation)
+      }
+      this.virtualCache[memoryQueryOne] = new VoxelCollection({
+         "controller": this.controller,
+         "origin": [0, 0, 0],
+         "fillVoxels": newFillVoxels
+      })
+      return this.virtualCache[memoryQueryOne]
+   }
+   interpretAST(): void {
+      this.tokens = SetOperationsParser.getSymbols();
+      // Clear the past uuid strings from the controller for the cache
+      let prevHeapKeys = Object.keys(this.virtualCache)
+      for (let i = 0; i < prevHeapKeys.length; i++) {
+         if (prevHeapKeys[i] !== this.tokens.UNIVERSAL_SET || prevHeapKeys[i] !== this.tokens.NULL_SET) {
+            this.virtualCache[prevHeapKeys[i]].controller.removeID(this.virtualCache[prevHeapKeys[i]].uuid)
+         }
+      }
+      this.virtualCache = {
+         [this.tokens.UNIVERSAL_SET]: new VoxelCollection({
+            controller: this.controller,
+            fillVoxels: this.compositeObjects.reduce((accum, obj) => {
+               return BaseObject.push2D(obj.getFillVoxels(), accum), accum
+            }, []),
+            origin: [0, 0, 0]
+         }),
+         [this.tokens.NULL_SET]: new VoxelCollection({
+            controller: this.controller,
+            fillVoxels: [],
+            origin: [0, 0, 0]
+         })
+      }
+      // This object is only temporary, but since it is the result from the recursive function, we can only remove the records after the stack collapse.
+      let solvedASTJoint: VoxelCollection = this.#recursiveSolver(this.equationInstance.getAST(), 0)
+      solvedASTJoint.controller.removeID(solvedASTJoint.uuid)
+      this._fillVoxels = solvedASTJoint._fillVoxels
+      // fill voxels has changed, so we need to calculaute bounding boxes again.
+      this.calculateBoundingBox()
    }
 }

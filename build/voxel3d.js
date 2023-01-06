@@ -246,7 +246,7 @@ export class BoundingBox {
             let key = String(i);
             this.boundingBox[key] = [...boundingBoxStructure[key]];
         }
-        this.calculateRange();
+        this.calculateRange(BoundingBox.compileBoundingDirectory(boundingBoxStructure));
     }
     /**
      * Checks if a given point falls within the 3D space this box covers.
@@ -279,19 +279,18 @@ export class BoundingBox {
         return voxels;
     }
     /**
-     * Calculates all of the metadata based on the current {@link BoundingBox.boundingBox}. This includes the point extremes and ranges on all three axes.
+     * Calculates all of the metadata based for the current {@link BoundingBox.boundingBox}. This includes the point extremes and ranges on all three axes.
      * @param array2D
      */
-    calculateRange() {
-        let array2D = BoundingBox.compileBoundingDirectory(this.boundingBox);
+    calculateRange(array2D) {
         let xValues = array2D.reduce((prev, curr) => { return prev.push(curr[0]), prev; }, []).sort((a, b) => a - b);
         let yValues = array2D.reduce((prev, curr) => { return prev.push(curr[1]), prev; }, []).sort((a, b) => a - b);
         let zValues = array2D.reduce((prev, curr) => { return prev.push(curr[2]), prev; }, []).sort((a, b) => a - b);
         this.xLow = xValues[0];
         this.xHigh = xValues[xValues.length - 1];
-        this.yLow = yValues[1];
+        this.yLow = yValues[0];
         this.yHigh = yValues[yValues.length - 1];
-        this.zLow = zValues[2];
+        this.zLow = zValues[0];
         this.zHigh = zValues[zValues.length - 1];
         this.zRange = Math.abs(this.zHigh - this.zLow);
         this.yRange = Math.abs(this.yHigh - this.yLow);
@@ -321,8 +320,14 @@ export class BoundingBox {
      */
     createBoundingBox(array2D) {
         if (array2D.length > 0) {
-            this.calculateRange();
+            this.calculateRange(array2D);
             this.boundingBox[0] = [this.xLow, this.yLow, this.zLow];
+            this.boundingBox[1] = [this.xHigh, this.yLow, this.zLow];
+            this.boundingBox[2] = [this.xLow, this.yHigh, this.zLow];
+            this.boundingBox[3] = [this.xHigh, this.yHigh, this.zLow];
+            this.boundingBox[4] = [this.xLow, this.yLow, this.zHigh];
+            this.boundingBox[5] = [this.xHigh, this.yLow, this.zHigh];
+            this.boundingBox[6] = [this.xLow, this.yHigh, this.zHigh];
             this.boundingBox[7] = [this.xHigh, this.yHigh, this.zHigh];
         }
         else {
@@ -942,10 +947,12 @@ export class BaseObject {
         }
         for (let key of Object.keys(sortedFillVoxelsDirectory)) {
             let fillKey = Number(key);
-            sliceBoundingBoxDirectory.push(new BoundingBox({
-                inputType: BoundingBoxPayloadModes.TYPE_BOUNDING_POINTS,
-                boundingInputPayload: sortedFillVoxelsDirectory[fillKey]
-            }));
+            if (sortedFillVoxelsDirectory[fillKey].length >= 1) {
+                sliceBoundingBoxDirectory.push(new BoundingBox({
+                    inputType: BoundingBoxPayloadModes.TYPE_BOUNDING_POINTS,
+                    boundingInputPayload: sortedFillVoxelsDirectory[fillKey]
+                }));
+            }
         }
         return {
             jointBoundingBox: new JointBoundingBox(sliceBoundingBoxDirectory),
@@ -1109,20 +1116,6 @@ export class BaseObject {
     }
 }
 /**
- * Used for {@link Line.generateLine} to decide how the line should be generated.
- *
- * A single pass will generate the line from start to end via {@link BaseObject.graph3DParametric}, and set the fill voxels
- *
- * Double pass will generate from start to end, and then end to start. It will combine both lines into one and set the fill voxels.
- *
- * For more information, see {@link BaseObject.graph3DParametric}
- */
-var LineTypes;
-(function (LineTypes) {
-    LineTypes["SINGLE_PASS_LINE"] = "SINGLE_PASS_LINE";
-    LineTypes["DOUBLE_PASS_LINE"] = "DOUBLE_PASS_LINE";
-})(LineTypes || (LineTypes = {}));
-/**
  * Contains all of the data structures to generate a 3D line between two points in 3D space.
  *
  * @remarks
@@ -1133,11 +1126,10 @@ var LineTypes;
  *
  * {@link BaseObject}
  *
- * {@link LineTypes}
  *
  * {@link LineOptions}
  */
-class Line extends BaseObject {
+export class Line extends BaseObject {
     /**
      * Stored the inputted endPoints. Does not account for origin.
      */
@@ -1155,25 +1147,11 @@ class Line extends BaseObject {
     /**
      * Generates the line between the {@link Line._endPoints}.
      * The outputted {@link Line._fillVoxels} are sorted by the first, second, and then third smallest axes order.
-     * @param mode See {@link LineTypes} for more information.
      */
-    generateLine(mode) {
+    generateLine() {
         const { biggestRangeIndex } = this.boundingBox;
         let startToEnd = BaseObject.graph3DParametric(...this._endPoints[0], ...this._endPoints[1]);
-        if (mode === LineTypes.DOUBLE_PASS_LINE) {
-            let endToStart = BaseObject.graph3DParametric(...this._endPoints[1], ...this._endPoints[0]).reverse();
-            // pushes to fill voxels
-            for (let j = 0; j < endToStart.length; j++) {
-                // If a item parrel to 
-                if (JSON.stringify(endToStart[j]) !== JSON.stringify(startToEnd[j])) {
-                    this._fillVoxels.push(endToStart[j]);
-                }
-                this._fillVoxels[j];
-            }
-        }
-        else {
-            BaseObject.push2D(startToEnd, this._fillVoxels);
-        }
+        BaseObject.push2D(startToEnd, this._fillVoxels);
         this._fillVoxels = this._fillVoxels
             .sort((a, b) => a[biggestRangeIndex[0]] - b[biggestRangeIndex[0]])
             .sort((a, b) => a[biggestRangeIndex[1]] - b[biggestRangeIndex[1]])
@@ -1199,7 +1177,7 @@ class Line extends BaseObject {
 /**
  * Stores data structures required to create a 3D polygon in 3D space.
  */
-class Layer extends BaseObject {
+export class Layer extends BaseObject {
     /**
      * One or more vertices that make up this polygon. Order of vertices decides how the shape will be generated.
      *
@@ -1273,7 +1251,7 @@ class Layer extends BaseObject {
                    A double sided line is used.
                 */
                 tempLine.changeEndPoints([this._verticesArray[startIndex], this._verticesArray[endIndex]]);
-                tempLine.generateLine(LineTypes.DOUBLE_PASS_LINE);
+                tempLine.generateLine();
                 let lineFillVoxels = tempLine.getFillVoxels();
                 this.edgeDirectory[entryKey] = lineFillVoxels;
                 BaseObject.push2D(this.edgeDirectory[entryKey].slice(1, lineFillVoxels.length - 1), this._fillVoxels);
@@ -1329,3 +1307,4 @@ class Layer extends BaseObject {
         return BaseObject.addOrigin(this._verticesArray, this._origin);
     }
 }
+
