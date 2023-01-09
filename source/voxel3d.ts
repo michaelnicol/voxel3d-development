@@ -112,9 +112,9 @@ export class JointBoundingBox {
    getAllJointBoundingBoxes(mode: keyof typeof JointBoundingBoxActions): (BoundingBox | Voxel | CompleteBoundingBox)[] {
       return this.boundingBoxes.reduce<(Voxel | CompleteBoundingBox | BoundingBox)[]>((prev, curr) => {
          if (mode === JointBoundingBoxActions.RETURN_MODE_FULL_DIRECTORY) {
-            return prev.push(...JSON.parse(JSON.stringify(curr))), prev;
+            return prev.push(JSON.parse(JSON.stringify(curr))), prev;
          } else if (mode === JointBoundingBoxActions.RETURN_MODE_VOXELS_DIRECTORY) {
-            return prev.push(...JSON.parse(JSON.stringify(curr.boundingBox))), prev;
+            return prev.push(JSON.parse(JSON.stringify(curr.boundingBox))), prev;
          } else if (mode === JointBoundingBoxActions.RETURN_MODE_VOXELS) {
             return prev.push(...BoundingBox.compileBoundingDirectory(curr.boundingBox as CompleteBoundingBox)), prev;
          } else {
@@ -467,10 +467,15 @@ export class BoundingBox {
       [[2, 6], [3, 7], [0, 4], [1, 5]]
    ];
    /**
-   * @remarks Generates a new {@link BoundingBox.boundingBox} or {@link BoundingBox.PartialBoundingBox} from the intersection between two inputted boxes. Used to find the cubic range area that is shared between two boxes, if any.
+   * @remarks Generates a new {@link CompleteBoundingBox} or {@link PartialBoundingBox} from the intersection between two inputted boxes. 
+   * 
+   * Used to find the cubic range area that is shared between two boxes, if any.
+   * 
    * @param b1 Box 1
    * @param b2 Box 2
-   * @returns Returns an array, and if the first element is true, then the second element is the intersection {@link BoundingBox.boundingBox}. Otherwise, the intersection is not possible (false).
+   * @returns Returns an array, and if the first element is true, then the second element is the intersection {@link CompleteBoundingBox}. 
+   * 
+   * Otherwise, the intersection is not possible (false) and the second element will be a {@link PartialBoundingBox}. This partial box will be the method's best attempt to {@link BoundingBox.correctBoundingBox}.
    */
    static boundingBoxIntersect(b1: CompleteBoundingBox | PartialBoundingBox, b2: CompleteBoundingBox | PartialBoundingBox): [boolean, CompleteBoundingBox | PartialBoundingBox] {
       const b3: PartialBoundingBox = BoundingBox.getEmptyBoundingTemplate()
@@ -485,76 +490,78 @@ export class BoundingBox {
             return [false, BoundingBox.getEmptyBoundingTemplate()]
          }
       }
-      b1 = b1 as CompleteBoundingBox
-      b2 = b2 as CompleteBoundingBox
+      // Despite B1 being now a valid CompleteBoundingBox, since the inital input of it was a OR type, I can not access the box.
+      // So I must re-create the boxes as a new strict type 
+      let assertedB1 = b1 as CompleteBoundingBox
+      let assertedB2 = b2 as CompleteBoundingBox
       for (let xp of this.#VP[0]) {
          // check if b1 is inside b2
          // if xp0 and xp1's vectors extending infitly in x direction,
          // pass through planes defined by 0,4,2 and 1,5,3
-         let left = BoundingBox.horizontalCheck(b1[xp[0] + "" as VALID_BOUNDING_KEY] as Voxel, b2[0] as Voxel, b2[2] as Voxel, b2[4] as Voxel);
-         let right = BoundingBox.horizontalCheck(b1[xp[1] + "" as VALID_BOUNDING_KEY] as Voxel, b2[1] as Voxel, b2[3] as Voxel, b2[5] as Voxel);
+         let left = BoundingBox.horizontalCheck(assertedB1[xp[0] + "" as VALID_BOUNDING_KEY], assertedB2[0], assertedB2[2], assertedB2[4]);
+         let right = BoundingBox.horizontalCheck(assertedB1[xp[1] + "" as VALID_BOUNDING_KEY], assertedB2[1], assertedB2[3], assertedB2[5]);
          if (left && right) {
-            // b1-left-x >= b2-0-x
-            if (b1[xp[0] + "" as VALID_BOUNDING_KEY][0] <= b2[0][0]) {
+            // b1-left-x <= b2-0-x
+            if (assertedB1[xp[0] + "" as VALID_BOUNDING_KEY][0] <= assertedB2[0][0]) {
                // b3-left = b2-0-x, b1-left-y, b1-left-z
-               b3[xp[0] + "" as VALID_BOUNDING_KEY] = [b2[0][0], b1[xp[0] + "" as VALID_BOUNDING_KEY][1], b1[xp[0] + "" as VALID_BOUNDING_KEY][2]]
+               b3[xp[0] + "" as VALID_BOUNDING_KEY] = [assertedB2[0][0], assertedB1[xp[0] + "" as VALID_BOUNDING_KEY][1], assertedB1[xp[0] + "" as VALID_BOUNDING_KEY][2]]
             } else {
                // b3-left = b1-left
-               b3[xp[0] + "" as VALID_BOUNDING_KEY] = [...b1[xp[0] + "" as VALID_BOUNDING_KEY]];
+               b3[xp[0] + "" as VALID_BOUNDING_KEY] = [...assertedB1[xp[0] + "" as VALID_BOUNDING_KEY]];
             }
             // b1-right-x >= b2-right-x
-            if (b1[xp[1] + "" as VALID_BOUNDING_KEY][0] >= b2[1][0]) {
+            if (assertedB1[xp[1] + "" as VALID_BOUNDING_KEY][0] >= assertedB2[1][0]) {
                // b3-right = b2-right-x, b1-right-y, b1-right-z
-               b3[xp[1] + "" as VALID_BOUNDING_KEY] = [b2[1][0], b1[xp[1] + "" as VALID_BOUNDING_KEY][1], b1[xp[1] + "" as VALID_BOUNDING_KEY][2]]
+               b3[xp[1] + "" as VALID_BOUNDING_KEY] = [assertedB2[1][0], assertedB1[xp[1] + "" as VALID_BOUNDING_KEY][1], assertedB1[xp[1] + "" as VALID_BOUNDING_KEY][2]]
             } else {
                // b3-right = b1-right
-               b3[xp[1] + "" as VALID_BOUNDING_KEY] = [...b1[xp[1] + "" as VALID_BOUNDING_KEY]];
+               b3[xp[1] + "" as VALID_BOUNDING_KEY] = [...assertedB1[xp[1] + "" as VALID_BOUNDING_KEY]];
             }
          }
       }
       for (let yp of this.#VP[1]) {
          // if down's vectors extends through plane 0, 1, 4
-         let down = BoundingBox.verticalCheck(b1[yp[0] + "" as VALID_BOUNDING_KEY] as Voxel, b2[0] as Voxel, b2[1] as Voxel, b2[4] as Voxel);
+         let down = BoundingBox.verticalCheck(assertedB1[yp[0] + "" as VALID_BOUNDING_KEY], assertedB2[0], assertedB2[1], assertedB2[4]);
          // if ups vectors extends through plane 2, 3, 6
-         let up = BoundingBox.verticalCheck(b1[yp[1] + "" as VALID_BOUNDING_KEY] as Voxel, b2[2] as Voxel, b2[3] as Voxel, b2[6] as Voxel);
+         let up = BoundingBox.verticalCheck(assertedB1[yp[1] + "" as VALID_BOUNDING_KEY], assertedB2[2], assertedB2[3], assertedB2[6]);
          if (up && down) {
             // b1-down-y >= b2-2-y
-            if (b1[yp[0] + "" as VALID_BOUNDING_KEY][1] <= b2[1][1]) {
+            if (assertedB1[yp[0] + "" as VALID_BOUNDING_KEY][1] <= assertedB2[1][1]) {
                // b3-down = b1-down-x, b2-0-y, b1-down-z
-               b3[yp[0] + "" as VALID_BOUNDING_KEY] = [b1[yp[0] + "" as VALID_BOUNDING_KEY][0], b2[0][1], b1[yp[0] + "" as VALID_BOUNDING_KEY][2]]  as Voxel
+               b3[yp[0] + "" as VALID_BOUNDING_KEY] = [assertedB1[yp[0] + "" as VALID_BOUNDING_KEY][0], assertedB2[0][1], assertedB1[yp[0] + "" as VALID_BOUNDING_KEY][2]]
             } else {
                // b3-down = b1-down
-               b3[yp[0] + "" as VALID_BOUNDING_KEY] = [...b1[yp[0] + "" as VALID_BOUNDING_KEY]]
+               b3[yp[0] + "" as VALID_BOUNDING_KEY] = [...assertedB1[yp[0] + "" as VALID_BOUNDING_KEY]]
             }
             // b1-up-y >= b2-2-y
-            if (b1[yp[1] + "" as VALID_BOUNDING_KEY][1] >= b2[2][1]) {
+            if (assertedB1[yp[1] + "" as VALID_BOUNDING_KEY][1] >= assertedB2[2][1]) {
                // b3-up = b1-up-x, b2-0-y, b1-up-z
-               b3[yp[1] + "" as VALID_BOUNDING_KEY] = [b1[yp[1] + "" as VALID_BOUNDING_KEY][0], b2[2][1], b1[yp[1] + "" as VALID_BOUNDING_KEY][2]]  as Voxel
+               b3[yp[1] + "" as VALID_BOUNDING_KEY] = [assertedB1[yp[1] + "" as VALID_BOUNDING_KEY][0], assertedB2[2][1], assertedB1[yp[1] + "" as VALID_BOUNDING_KEY][2]]
             } else {
                // b3-up = b2-up
-               b3[yp[1] + "" as VALID_BOUNDING_KEY] = [...b1[yp[1] + "" as VALID_BOUNDING_KEY]]
+               b3[yp[1] + "" as VALID_BOUNDING_KEY] = [...assertedB1[yp[1] + "" as VALID_BOUNDING_KEY]]
             }
          }
       }
       for (let zp of this.#VP[2]) {
          // if closet point vector extends through plane 4,5,6
-         let closet = BoundingBox.depthCheck(b1[zp[0] + "" as VALID_BOUNDING_KEY] as Voxel, b2[0] as Voxel, b2[1] as Voxel, b2[2] as Voxel);
+         let closet = BoundingBox.depthCheck(assertedB1[zp[0] + "" as VALID_BOUNDING_KEY], assertedB2[0], assertedB2[1] as Voxel, assertedB2[2]);
          // if farthest points vector extends through 0,1,2
-         let further = BoundingBox.depthCheck(b1[zp[1] + "" as VALID_BOUNDING_KEY] as Voxel, b2[4] as Voxel, b2[5] as Voxel, b2[6] as Voxel);
+         let further = BoundingBox.depthCheck(assertedB1[zp[1] + "" as VALID_BOUNDING_KEY], assertedB2[4], assertedB2[5] as Voxel, assertedB2[6]);
          // if both these poins align through the planes
          if (closet && further) {
             // b1-close-z <= b2-0-z
-            if (b1[zp[0] + "" as VALID_BOUNDING_KEY][2] <= b2[0][2]) {
+            if (assertedB1[zp[0] + "" as VALID_BOUNDING_KEY][2] <= assertedB2[0][2]) {
                // b3-close = close-x, close-y b2-0-z
-               b3[zp[0] + "" as VALID_BOUNDING_KEY] = [b1[zp[0] + "" as VALID_BOUNDING_KEY][0], b1[zp[0] + "" as VALID_BOUNDING_KEY][1], b2[0][2]]  as Voxel
+               b3[zp[0] + "" as VALID_BOUNDING_KEY] = [assertedB1[zp[0] + "" as VALID_BOUNDING_KEY][0], assertedB1[zp[0] + "" as VALID_BOUNDING_KEY][1], assertedB2[0][2]]
             } else {
                // b3-close = b1-close
-               b3[zp[0] + "" as VALID_BOUNDING_KEY] = [...b1[zp[1] + "" as VALID_BOUNDING_KEY]]
+               b3[zp[0] + "" as VALID_BOUNDING_KEY] = [...assertedB1[zp[1] + "" as VALID_BOUNDING_KEY]]
             }
             // b1-far-z >= b2-6-2
-            if (b1[zp[1] + "" as VALID_BOUNDING_KEY][2] >= b2[6][2]) {
+            if (assertedB1[zp[1] + "" as VALID_BOUNDING_KEY][2] >= assertedB2[6][2]) {
                // b3-far = far-x. far-y. b2-6-z
-               b3[zp[1] + "" as VALID_BOUNDING_KEY] = [b1[zp[1] + "" as VALID_BOUNDING_KEY][0], b1[zp[1] + "" as VALID_BOUNDING_KEY][1], b2[6][2]]  as Voxel
+               b3[zp[1] + "" as VALID_BOUNDING_KEY] = [assertedB1[zp[1] + "" as VALID_BOUNDING_KEY][0], assertedB1[zp[1] + "" as VALID_BOUNDING_KEY][1], assertedB2[6][2]]
             }
          }
       }
@@ -790,16 +797,7 @@ export class UUIDController {
    #generateID(): string {
       let uuid = ""
       for (let i = 1; i < 37; i++) {
-         switch (i) {
-            case 9:
-            case 14:
-            case 19:
-            case 24:
-               uuid += "-"
-               break;
-            default:
-               uuid += this._randomChar()
-         }
+         uuid += this._randomChar()
       }
       return uuid
    }
@@ -1380,12 +1378,15 @@ export class Layer extends BaseObject {
     * Changes fill voxels to the vertices, resets the edge directory, calculates bounding boxes.
     * 
     * @param verticesArray The new set of vertices
+    * 
+    * @returns reference to layer object, allows for method chaining.
     */
-   changeVertices(verticesArray: Voxel[]): void { // done
+   changeVertices(verticesArray: Voxel[]): Layer { // done
       this._verticesArray = BaseObject.deepCopy(verticesArray)
       this._fillVoxels = [...this._verticesArray]
       this.calculateBoundingBox()
       this.edgeDirectory = {}
+      return this
    }
    /**
     * Generates the entries of {@link Layer.edgeDirectory}, where each entry is a line that connects one vertice to another.
@@ -1393,8 +1394,10 @@ export class Layer extends BaseObject {
     * Use {@link Layer.getEdgeVoxels} to acess all edge voxels as a single array.
     * 
     * Also adds all voxels from the edge directory to the {@link Layer._fillVoxels}.
+    * 
+    * @returns reference to layer object, allows for method chaining.
     */
-   generateEdges() {
+   generateEdges(): Layer {
       this._fillVoxels = []
       let tempLine = new Line({
          endPoints: [[0, 0, 0], [0, 0, 0]],
@@ -1435,27 +1438,31 @@ export class Layer extends BaseObject {
       tempLine.controller.removeReferenceEntry(this.uuid)
       tempLine.controller.removeID(this.uuid)
       this.calculateBoundingBox();
+      return this
    }
    /**
     * Uses the {@link Layer.sortedFillVoxelsDirectory} generated from the {@link Layer._fillVoxels} generated from {@link Layer.generateEdges} to fill in the shape.
     * 
     * Sets {@link Layer._fillVoxels} and calculautes bounding box.
+    * 
+    * @returns reference to layer object, allows for method chaining.
     */
-   fillPolygon(): void {
+   fillPolygon(): Layer {
       this._fillVoxels = []
       let temporary2DSlice = new Layer({
-         verticesArray: [[0, 0, 0]],
+         verticesArray: [],
          origin: this.getOrigin(),
          controller: this.controller
       })
       for (let entry of Object.keys(this.sortedFillVoxelsDirectory)) {
          let currentEntry = Number(entry)
          let entryVoxels = this.sortedFillVoxelsDirectory[currentEntry as keyof SortedFillVoxelsDirectoryType];
-         temporary2DSlice.changeVertices(entryVoxels);
-         temporary2DSlice.generateEdges();
+         temporary2DSlice.changeVertices(entryVoxels).generateEdges();
          BaseObject.push2D(temporary2DSlice.getFillVoxels(), this._fillVoxels)
       }
+      temporary2DSlice.controller.removeID(temporary2DSlice.uuid)
       this.calculateBoundingBox();
+      return this
    }
    /**
     * Compiles the {@link Layer.edgeDirectory} into a single 2D array
@@ -1609,7 +1616,7 @@ const SYNTAX_REGEX = {
     * 1) Global
     * 2) Case Insensitive
     */
-   "CONVERSION_REGEX": new RegExp(`\\${SYNTAX_TOKENS.NEGATION_OP}*\\${SYNTAX_TOKENS.OPEN_PER}|\\${SYNTAX_TOKENS.CLOSE_PER}|\\${SYNTAX_TOKENS.NEGATION_OP}*[a-z${SYNTAX_TOKENS.UNIVERSAL_SET}${SYNTAX_TOKENS.NULL_SET}]+|[${SYNTAX_TOKENS.INTERSECTION_OP}${SYNTAX_TOKENS.SYMM_DIFF_OP}${SYNTAX_TOKENS.UNION_OP}${SYNTAX_TOKENS.SUBTRACTION_OP}]`, "gi"),
+   "CONVERSION_REGEX": new RegExp(`\\${SYNTAX_TOKENS.NEGATION_OP}*\\${SYNTAX_TOKENS.OPEN_PER}|\\${SYNTAX_TOKENS.CLOSE_PER}|\\${SYNTAX_TOKENS.NEGATION_OP}*[a-z${SYNTAX_TOKENS.UNIVERSAL_SET}${SYNTAX_TOKENS.NULL_SET}0-9]+|[${SYNTAX_TOKENS.INTERSECTION_OP}${SYNTAX_TOKENS.SYMM_DIFF_OP}${SYNTAX_TOKENS.UNION_OP}${SYNTAX_TOKENS.SUBTRACTION_OP}]`, "gi"),
    /**
  * @remarks
  * Regular expression to check for invalid negation of a closing grouping: 
@@ -1730,7 +1737,7 @@ const SYNTAX_REGEX = {
   * 1) Global
   * 2) Case Insensitive
   */
-   "VALID_CHAR_REGEX": new RegExp(`\\s|[a-z]|[${SYNTAX_TOKENS.UNIVERSAL_SET}${SYNTAX_TOKENS.NULL_SET}${SYNTAX_TOKENS.UNION_OP}${SYNTAX_TOKENS.INTERSECTION_OP}${SYNTAX_TOKENS.SYMM_DIFF_OP}${SYNTAX_TOKENS.NEGATION_OP}${SYNTAX_TOKENS.OPEN_PER}${SYNTAX_TOKENS.CLOSE_PER}${SYNTAX_TOKENS.SUBTRACTION_OP}]`, "gi")
+   "VALID_CHAR_REGEX": new RegExp(`\\s|[a-z]|[${SYNTAX_TOKENS.UNIVERSAL_SET}${SYNTAX_TOKENS.NULL_SET}${SYNTAX_TOKENS.UNION_OP}${SYNTAX_TOKENS.INTERSECTION_OP}${SYNTAX_TOKENS.SYMM_DIFF_OP}${SYNTAX_TOKENS.NEGATION_OP}${SYNTAX_TOKENS.OPEN_PER}${SYNTAX_TOKENS.CLOSE_PER}${SYNTAX_TOKENS.SUBTRACTION_OP}]|\\d`, "gi")
 } as const
 /**
     * @remarks
@@ -1876,7 +1883,7 @@ export class SetOperationsParser {
       errorTokens = SetOperationsParser.useRegex("INVALID_ENDING_REGEX", str, SetOperationsParserAction.MATCH_MODE)
 
       if (errorTokens instanceof Array && errorTokens.length > 0) {
-         throw new TypeError(`INVALID_ENDING_REGEX | Unable to validate equationString "${str}": Ends with operator, negation or opening grouping syntax "${errorTokens}"`);
+         throw new TypeError(`INVALID_ENDING_REGEX | Unable to validate equationString "${str}": Ends with operator, negation or opening grouping syntax token: "${errorTokens}"`);
       }
 
 
@@ -2423,7 +2430,7 @@ export interface CompositeOptions {
 export interface CollectionOptions {
    "controller": UUIDController,
    "origin": Voxel
-   "fillVoxels": | Voxel[]
+   "fillVoxels": Voxel[]
 }
 
 /**
@@ -2439,9 +2446,22 @@ class VoxelCollection extends BaseObject {
          "controller": options.controller,
          "origin": options.origin
       })
-      this._fillVoxels = BaseObject.push2D(options.fillVoxels, this._fillVoxels)
+      this._fillVoxels = []
+      BaseObject.push2D(options.fillVoxels, this._fillVoxels)
       this.calculateBoundingBox()
    }
+   setFillVoxels(newVoxels: Voxel[]): this {
+      this._fillVoxels = []
+      BaseObject.push2D(newVoxels, this._fillVoxels)
+      this.calculateBoundingBox()
+      return this
+   }
+   addFillVoxels(newVoxels: Voxel[]): this {
+      BaseObject.push2D(newVoxels, this._fillVoxels)
+      this.calculateBoundingBox()
+      return this
+   }
+   // create shell around points
 }
 
 export type InterpeterAST = (string | BaseObject | InterpeterAST)[]
@@ -2474,7 +2494,7 @@ export class CompositeVoxelGroup extends BaseObject {
    }
    changeCompositeObjects(compositeObjects: BaseObject[], variableNames: Record<string, BaseObject>): void {
       this.variableNames = variableNames
-      this.compositeObjects = compositeObjects
+      this.compositeObjects = Object.assign({}, compositeObjects)
    }
    generateAST(equation: string): void {
       this.equationInstance.changeEquation(equation)
@@ -2525,6 +2545,15 @@ export class CompositeVoxelGroup extends BaseObject {
          console.warn(this.variableNames)
          throw new ReferenceError("Unable to find the heap address or variableNames address for token2: " + token2)
       }
+      // Now that the values have been re-trieved, make sure to terminate if the layer is one in length
+      if (layer.length === 1) {
+         return token1
+      } else if (layer.length === 2) {
+         console.warn("Interpet Error: logging heap and names");
+         console.warn(this.virtualCache);
+         console.warn(this.variableNames);
+         throw new ReferenceError("Invalid sub-equation length two from AST layer: " + token1)
+      }
       let memoryQueryOne = token1.uuid + operation + token2.uuid;
       let memoryQueryTwo = token2.uuid + operation + token1.uuid;
       // First, check the cache to see if these operations have been done before. 
@@ -2560,8 +2589,8 @@ export class CompositeVoxelGroup extends BaseObject {
        * Intersection Calculautions
        */
 
-      let token1JointBox: BoundingBox[] = token1.jointBoundingBox.getAllJointBoundingBoxes(JointBoundingBoxActions.RETURN_MODE_VOXELS_DIRECTORY) as BoundingBox[]
-      let token2JointBox: BoundingBox[] = token2.jointBoundingBox.getAllJointBoundingBoxes(JointBoundingBoxActions.RETURN_MODE_VOXELS_DIRECTORY) as BoundingBox[]
+      let token1JointBox: BoundingBox[] = token1.jointBoundingBox.getAllJointBoundingBoxes(JointBoundingBoxActions.RETURN_MODE_FULL_DIRECTORY) as BoundingBox[]
+      let token2JointBox: BoundingBox[] = token2.jointBoundingBox.getAllJointBoundingBoxes(JointBoundingBoxActions.RETURN_MODE_FULL_DIRECTORY) as BoundingBox[]
 
       let intersectionArr: BoundingBox[] = []
 
@@ -2602,25 +2631,22 @@ export class CompositeVoxelGroup extends BaseObject {
       let newFillVoxels: Voxel[] = []
       if (operation === this.tokens.INTERSECTION_OP) {
          if (joint.length === 0) {
-            this.virtualCache[memoryQueryOne] = this.virtualCache[this.tokens.NULL_SET]
-            return this.virtualCache[this.tokens.NULL_SET]
+            this.virtualCache[memoryQueryOne] = this.virtualCache[this.tokens.NULL_SET];
+            return this.virtualCache[this.tokens.NULL_SET];
          } else {
-            newFillVoxels = joint
+            newFillVoxels = joint;
          }
-      }
-      else if (operation === this.tokens.UNION_OP) {
-         BaseObject.push2D(newFillVoxels, token1NotInJoint)
-         BaseObject.push2D(newFillVoxels, token2NotInJoint)
-         BaseObject.push2D(newFillVoxels, joint)
-      }
-      else if (operation === this.tokens.SUBTRACTION_OP) {
-         BaseObject.push2D(newFillVoxels, token1NotInJoint)
-      }
-      else if (operation === this.tokens.SYMM_DIFF_OP) {
-         BaseObject.push2D(newFillVoxels, token1NotInJoint)
-         BaseObject.push2D(newFillVoxels, token2NotInJoint)
+      } else if (operation === this.tokens.UNION_OP) {
+         BaseObject.push2D(token1NotInJoint, newFillVoxels);
+         BaseObject.push2D(token2NotInJoint, newFillVoxels);
+         BaseObject.push2D(joint, newFillVoxels);
+      } else if (operation === this.tokens.SUBTRACTION_OP) {
+         BaseObject.push2D(token1NotInJoint, newFillVoxels);
+      } else if (operation === this.tokens.SYMM_DIFF_OP) {
+         BaseObject.push2D(token1NotInJoint, newFillVoxels);
+         BaseObject.push2D(token2NotInJoint, newFillVoxels);
       } else {
-         throw new ReferenceError("Unknown operation: " + operation)
+         throw new ReferenceError("Unknown operation: " + operation);
       }
       this.virtualCache[memoryQueryOne] = new VoxelCollection({
          "controller": this.controller,
@@ -2658,5 +2684,170 @@ export class CompositeVoxelGroup extends BaseObject {
       this._fillVoxels = solvedASTJoint._fillVoxels
       // fill voxels has changed, so we need to calculaute bounding boxes again.
       this.calculateBoundingBox()
+   }
+}
+
+export interface VectorVoxelExtrudeOptions {
+   "controller": UUIDController,
+   "origin": Voxel
+   "extrudeVector": Voxel,
+   "extrudeObject": Layer
+}
+
+export class LayerVectorExtrude extends BaseObject {
+   extrudeVector: Voxel
+   extrudeObject: Layer
+   extrudeEndCap: Layer
+   shell: boolean
+   constructor(options: VectorVoxelExtrudeOptions) {
+      super({
+         "controller": options.controller,
+         "origin": options.origin
+      })
+      this.extrudeVector = [...options.extrudeVector]
+      this.extrudeObject = options.extrudeObject
+      this.extrudeEndCap = new Layer({
+         "controller": options.controller,
+         "origin": options.origin,
+         "verticesArray": []
+      })
+      this.shell = false
+   }
+   changeExtrudeVector(newVector: Voxel): LayerVectorExtrude {
+      this.extrudeVector = [...newVector]
+      this._fillVoxels = this.extrudeObject.getFillVoxels()
+      this.calculateBoundingBox()
+      this.shell = false
+      return this
+   }
+   changeExtrudeObject(newObject: Layer): LayerVectorExtrude {
+      this.extrudeObject = newObject
+      this._fillVoxels = this.extrudeObject.getFillVoxels()
+      this.calculateBoundingBox()
+      this.shell = false
+      return this
+   }
+   extrudeVoxels(shell: boolean): LayerVectorExtrude {
+      this.shell = shell
+      if ((this.extrudeVector[0] + this.extrudeVector[1] + this.extrudeVector[2]) === 0) {
+         this._fillVoxels = this.extrudeObject.getFillVoxels()
+         this.calculateBoundingBox()
+         return this
+      }
+      this._fillVoxels = []
+      let endCapVertices: Voxel[] = []
+      // this.extrudeVector is parrel to a given Voxel
+      if (shell) {
+         for (let voxel of this.extrudeObject.getVerticeVoxels()) {
+            endCapVertices.push(voxel.map((n, i) => n += this.extrudeVector[i]) as Voxel)
+         }
+         this.extrudeEndCap.changeVertices(endCapVertices).generateEdges().fillPolygon()
+         let edgeDirectoryVoxels = this.extrudeObject.getEdgeVoxels()
+         if (edgeDirectoryVoxels.length === 0) {
+            console.warn("extrudeVoxels error dectected, printing layer:")
+            console.warn(this.extrudeObject)
+            throw new ReferenceError("LayerVectorExtrude layer " + this.extrudeObject.uuid + " has no voxels within the edge directory.")
+         }
+         for (let voxel of edgeDirectoryVoxels) {
+            BaseObject.push2D(BaseObject.graph3DParametric(...voxel, ...(voxel.map((n, i) => n += this.extrudeVector[i]) as Voxel)).slice(1, -2), this._fillVoxels)
+         }
+         BaseObject.push2D(this.extrudeEndCap.getFillVoxels(), this._fillVoxels)
+         BaseObject.push2D(this.extrudeObject.getFillVoxels(), this._fillVoxels)
+      } else {
+         for (let voxel of this.extrudeObject.getFillVoxels()) {
+            BaseObject.push2D(BaseObject.graph3DParametric(...voxel, ...(voxel.map((n, i) => n += this.extrudeVector[i]) as Voxel)), this._fillVoxels)
+         }
+      }
+      this.calculateBoundingBox()
+      return this
+   }
+}
+
+export interface LayerConvexExtrudeOptions {
+   "controller": UUIDController,
+   "origin": Voxel
+   "extrudeObjects": Layer[]
+}
+export class LayerConvexExtrude extends BaseObject {
+   extrudeObjects: Layer[]
+   edgeDirectory: Record<string,  Voxel[]>
+   constructor(options: LayerConvexExtrudeOptions) {
+      super({
+         "controller": options.controller,
+         "origin": options.origin
+      })
+      this.extrudeObjects = options.extrudeObjects
+      this.edgeDirectory = {}
+   }
+   pointOrientation(p1: Voxel, p2: Voxel, p3: Voxel): number {
+      // If the slope from p1 to p2 is less than the slope from p2 to p3, 
+      // then the points are trending counter clockwise. 
+      return  (p2[1] - p1[1]) * (p3[0] - p2[0]) - (p3[1] - p2[1]) * (p2[0] - p1[0])
+   }
+   convexHull(inputPoints: Voxel[]): Voxel[] {
+      if (inputPoints.length <= 3) {
+         return inputPoints
+      }
+      // Sort the data set from lowest x value to highest
+      let sortedPoints = inputPoints.sort((a, b) => a[0] - b[0])
+      let convexHull = [sortedPoints[0]]
+      // Start with a point we know is on the hull
+      let pointOnHull = sortedPoints[0]
+      while (true) {
+         for (let i = 1; i < sortedPoints.length; i++) {
+            // Grab the potinal for the next point.
+            let nextPoint = sortedPoints[i]
+            // Loop back through again and confirm that this is the most counterclockwise point
+            for (let j = 0; j < sortedPoints.length; j++) {
+               // If a point on the hull is more counter clockwise than this current point
+               if (this.pointOrientation(pointOnHull, nextPoint, sortedPoints[j]) < 0) {
+                  // This should be the next point instead
+                  nextPoint = [...sortedPoints[j]]
+                  // And that when we come back around for a new nextPoint, 
+                  // don't go back over values already checked.
+                  i = j
+               }
+            }
+            // If we have come back around
+            if (JSON.stringify(nextPoint) === JSON.stringify(sortedPoints[0])) {
+               return convexHull
+            }
+            // After we found the new value of the nextPoint, add it to the hull
+            convexHull.push([...nextPoint])
+            // Now we restart the loop again, with this new hull point.
+            pointOnHull = [...nextPoint]
+         }
+      }
+   }
+   generateEdges(): LayerConvexExtrude  {
+      this.edgeDirectory = {
+         
+      }
+      this._fillVoxels = []
+      // 1 2
+      // 0 1
+      let sectionKey = 0;
+      let sectionVoxelCollection = new VoxelCollection({
+         "controller": this.controller,
+         "origin": this._origin,
+         "fillVoxels": []
+      })
+      for (let i = 0; i < this.extrudeObjects.length; i++) {
+         this.edgeDirectory[sectionKey] = []
+         sectionVoxelCollection.setFillVoxels([])
+         if (i+1 < this.extrudeObjects.length) {
+            let startObject = this.extrudeObjects[i]
+            let endObject = this.extrudeObjects[i+1]
+            // Generate lines betwene all vertices, slice off from 1 to -1
+            let startV = startObject.getVerticeVoxels()
+            let endV = endObject.getVerticeVoxels()
+            for (let SV of startV) {
+               for (let EV of endV) {
+                  this.edgeDirectory[sectionKey].push()
+               }
+            }
+         }
+      }
+      return this
    }
 }
