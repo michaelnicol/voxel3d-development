@@ -701,6 +701,8 @@ export class BoundingBox {
  * A controller for all of the universally unique identifications within the program. Contains a database where objects can choose to attatch a reference for each ID.
  *
  * @remarks
+ *
+ * @todo - redo
  */
 export class UUIDController {
     /**
@@ -719,7 +721,7 @@ export class UUIDController {
      *
      * @returns A random unicode character between either 47 to 57 decimal (U+0030 - U+0039) or 97 to 122 (U+0061 - U+007A)
      */
-    _randomChar() {
+    randomChar() {
         let choice = Math.random() > 0.5;
         return String.fromCodePoint(Math.floor(Math.random() * (choice ? 26 : 10) + (choice ? 97 : 48)));
     }
@@ -733,7 +735,7 @@ export class UUIDController {
     #generateID() {
         let uuid = "";
         for (let i = 1; i < 37; i++) {
-            uuid += this._randomChar();
+            uuid += this.randomChar();
         }
         return uuid;
     }
@@ -749,7 +751,7 @@ export class UUIDController {
      * Removes the key/value pair via delete within the {@link UUIDController._objIDReferance} database.
      *
      * @example
-     * delete this._objIDReferance[id]
+     *  delete this._objIDReferance[id]
      *
      * @param id Target key via UUID
      */
@@ -797,10 +799,11 @@ export class UUIDController {
         return false;
     }
     /**
-     * Resets {@link UUIDController.#arrID} to an empty array.
+     * Resets all stored ID's and references within this controller
      */
-    clearAllID() {
+    delete() {
         this.#arrID = [];
+        this._objIDReferance = {};
     }
 }
 /**
@@ -1147,6 +1150,18 @@ export class BaseObject {
     static deepCopy(object) {
         return JSON.parse(JSON.stringify(object));
     }
+    /**
+     * Removes this object from the controllers reference database, wipes the fillVoxels and removes the ID.
+     *
+     * Doing this allows for JS automatic garabage collection to automatically remove this object from memory.
+     *
+     * However, this relies on the user not referencing the object after the delete is called.
+     */
+    delete() {
+        this.controller.removeID(this.uuid);
+        this._fillVoxels = [];
+        this.uuid = "";
+    }
 }
 /**
  * Contains all of the data structures to generate a 3D line between two points in 3D space.
@@ -1300,8 +1315,7 @@ export class Layer extends BaseObject {
             this._fillVoxels.push([...this._verticesArray[0]]);
         }
         BaseObject.push2D(this._verticesArray, this._fillVoxels);
-        tempLine.controller.removeReferenceEntry(this.uuid);
-        tempLine.controller.removeID(this.uuid);
+        tempLine.delete();
         this.calculateBoundingBox();
         return this;
     }
@@ -1325,7 +1339,7 @@ export class Layer extends BaseObject {
             temporary2DSlice.changeVertices(entryVoxels).generateEdges();
             BaseObject.push2D(temporary2DSlice.getFillVoxels(), this._fillVoxels);
         }
-        temporary2DSlice.controller.removeID(temporary2DSlice.uuid);
+        temporary2DSlice.delete();
         this.calculateBoundingBox();
         return this;
     }
@@ -2239,7 +2253,7 @@ export class SetOperationsEquation {
 /**
  * Acts as a median to {@link BaseObject} when the user may simply want to store voxels without them belonging to a particular shape.
  *
- * Used by {@link CompositeVoxelGroup} to temporarily hold the intersection voxels between shapes
+ * Used by {@link CompositeVoxelCollection} to temporarily hold the intersection voxels between shapes
  *
  * Alows the user to pass in an array of voxels for storage
  */
@@ -2253,10 +2267,20 @@ class VoxelCollection extends BaseObject {
         BaseObject.push2D(options.fillVoxels, this._fillVoxels);
         this.calculateBoundingBox();
     }
+    setFillVoxels(newVoxels) {
+        this._fillVoxels = [];
+        BaseObject.push2D(newVoxels, this._fillVoxels);
+        this.calculateBoundingBox();
+        return this;
+    }
+    addFillVoxels(newVoxels) {
+        BaseObject.push2D(newVoxels, this._fillVoxels);
+        this.calculateBoundingBox();
+        return this;
+    }
 }
-export class CompositeVoxelGroup extends BaseObject {
+export class CompositeVoxelCollection extends BaseObject {
     equationInstance;
-    compositeObjects;
     virtualCache;
     tokens;
     variableNames;
@@ -2265,28 +2289,43 @@ export class CompositeVoxelGroup extends BaseObject {
             "controller": options.controller,
             "origin": options.origin
         });
+        this.variableNames = options.variableNames;
         this.equationInstance = new SetOperationsEquation("", options.log);
-        this.compositeObjects = options.compositeObjects;
         this._fillVoxels = [];
-        for (let i = 0; i < this.compositeObjects.length; i++) {
-            BaseObject.push2D(this.compositeObjects[i].getFillVoxels(), this._fillVoxels);
+        for (let key in Object.keys(this.variableNames)) {
+            BaseObject.push2D(this.variableNames[key].getFillVoxels(), this._fillVoxels);
         }
         this.calculateBoundingBox();
         this.tokens = SetOperationsParser.getSymbols();
+        this.virtualCache = {};
+        this.resetVirtualCache();
+    }
+    resetVirtualCache() {
+        let prevHeapKeys = Object.keys(this.virtualCache);
+        for (let i = 0; i < prevHeapKeys.length; i++) {
+            if (prevHeapKeys[i] !== this.tokens.UNIVERSAL_SET || prevHeapKeys[i] !== this.tokens.NULL_SET) {
+                this.virtualCache[prevHeapKeys[i]].delete();
+            }
+        }
+        let voxels = [];
+        for (let key in Object.keys(this.variableNames)) {
+            BaseObject.push2D(this.variableNames[key].getFillVoxels(), voxels);
+        }
         this.virtualCache = {
-            [this.tokens.UNIVERSAL_SET]: new VoxelCollection({ controller: this.controller, fillVoxels: this.compositeObjects.reduce((accum, obj) => { return BaseObject.push2D(obj.getFillVoxels(), accum), accum; }, []), origin: this._origin }),
+            [this.tokens.UNIVERSAL_SET]: new VoxelCollection({ controller: this.controller, fillVoxels: voxels, origin: this._origin }),
             [this.tokens.NULL_SET]: new VoxelCollection({ controller: this.controller, fillVoxels: [], origin: this._origin })
         };
-        this.variableNames = options.variableNames;
     }
-    changeCompositeObjects(compositeObjects, variableNames) {
+    changeNames(variableNames) {
         this.variableNames = variableNames;
-        this.compositeObjects = Object.assign({}, compositeObjects);
+        this.resetVirtualCache();
+        return this;
     }
-    generateAST(equation) {
+    setEquation(equation) {
         this.equationInstance.changeEquation(equation);
         this.equationInstance.validateEquation();
         this.equationInstance.generateAST();
+        return this;
     }
     #recursiveSolver(layer, depth) {
         // need to deal with one length equations
@@ -2449,39 +2488,38 @@ export class CompositeVoxelGroup extends BaseObject {
     }
     interpretAST() {
         this.tokens = SetOperationsParser.getSymbols();
-        // Clear the past uuid strings from the controller for the cache
-        let prevHeapKeys = Object.keys(this.virtualCache);
-        for (let i = 0; i < prevHeapKeys.length; i++) {
-            if (prevHeapKeys[i] !== this.tokens.UNIVERSAL_SET || prevHeapKeys[i] !== this.tokens.NULL_SET) {
-                this.virtualCache[prevHeapKeys[i]].controller.removeID(this.virtualCache[prevHeapKeys[i]].uuid);
-            }
-        }
-        this.virtualCache = {
-            [this.tokens.UNIVERSAL_SET]: new VoxelCollection({
-                controller: this.controller,
-                fillVoxels: this.compositeObjects.reduce((accum, obj) => {
-                    return BaseObject.push2D(obj.getFillVoxels(), accum), accum;
-                }, []),
-                origin: [0, 0, 0]
-            }),
-            [this.tokens.NULL_SET]: new VoxelCollection({
-                controller: this.controller,
-                fillVoxels: [],
-                origin: [0, 0, 0]
-            })
-        };
-        // This object is only temporary, but since it is the result from the recursive function, we can only remove the records after the stack collapse.
+        this.resetVirtualCache();
+        // This object is only temporary, but since it is the result from the recursive function, 
+        // we can only remove the records after the stack collapse.
         let solvedASTJoint = this.#recursiveSolver(this.equationInstance.getAST(), 0);
-        solvedASTJoint.controller.removeID(solvedASTJoint.uuid);
+        solvedASTJoint.delete();
         this._fillVoxels = solvedASTJoint._fillVoxels;
         // fill voxels has changed, so we need to calculaute bounding boxes again.
         this.calculateBoundingBox();
+        return this;
     }
 }
+/**
+ * Takes in a layer and a XYZ direction vector, and extrudes the layer in that direction.
+ */
 export class LayerVectorExtrude extends BaseObject {
+    /**
+     * The XYZ direction to extrude the voxel
+     */
     extrudeVector;
+    /**
+     * The layer to be extruded
+     */
     extrudeObject;
+    /**
+     * A Layer created by taking the extrude endpoints of the {@link extrudeObject._verticesArray}
+     * Used to create the shell endpoint.
+    */
     extrudeEndCap;
+    /**
+     * Defines if the current extruded shape is a shell (hollow) or not (filled)
+     */
+    shell;
     constructor(options) {
         super({
             "controller": options.controller,
@@ -2494,32 +2532,65 @@ export class LayerVectorExtrude extends BaseObject {
             "origin": options.origin,
             "verticesArray": []
         });
+        this.shell = false;
     }
+    /**
+     * Changes the extrude vector, resets the fillVoxels to extrudeObject's fillVoxels, sets endCap to no vertices, and sets shell to false.
+     *
+     * Re-calculates bounding box.
+     *
+     * @param newVector
+     * @returns Reference to this object for method chaining.
+     */
     changeExtrudeVector(newVector) {
         this.extrudeVector = [...newVector];
         this._fillVoxels = this.extrudeObject.getFillVoxels();
+        this.extrudeEndCap.changeVertices([]);
         this.calculateBoundingBox();
+        this.shell = false;
         return this;
     }
+    /**
+     * Changes the extruding object, resets the fillVoxels to this new object, resets extrudeEndCap to no vertices, sets shell to false,
+     *
+     * Re-calculautes bounding box.
+     *
+     * @param newObject New object to be extruded
+     * @returns
+     */
     changeExtrudeObject(newObject) {
         this.extrudeObject = newObject;
         this._fillVoxels = this.extrudeObject.getFillVoxels();
+        this.extrudeEndCap.changeVertices([]);
         this.calculateBoundingBox();
+        this.shell = false;
         return this;
     }
+    /**
+     * Generates the extrusion from the {@link LayerVectorExtrude.extrudeObject} by the XYZ vector {@link LayerVectorExtrude.extrudeVector}.
+     *
+     * Generates another layer, {@link LayerVectorExtrude.extrudeEndCap}, which is composed of all extruded vertices from te extrudeObject.
+     *
+     * Stores with fillVoxels, re-calculautes bounding box.
+     *
+     * @param shell If the extrusion should be hollow or not.
+     * @returns
+     */
     extrudeVoxels(shell) {
+        this.shell = shell;
         if ((this.extrudeVector[0] + this.extrudeVector[1] + this.extrudeVector[2]) === 0) {
             this._fillVoxels = this.extrudeObject.getFillVoxels();
             this.calculateBoundingBox();
+            this.extrudeEndCap.changeVertices(this.extrudeObject.getVerticeVoxels()).generateEdges().fillPolygon();
             return this;
         }
         this._fillVoxels = [];
         let endCapVertices = [];
+        for (let voxel of this.extrudeObject.getVerticeVoxels()) {
+            endCapVertices.push(voxel.map((n, i) => n += this.extrudeVector[i]));
+        }
+        this.extrudeEndCap.changeVertices(endCapVertices).generateEdges().fillPolygon();
         if (shell) {
-            for (let voxel of this.extrudeObject.getVerticeVoxels()) {
-                endCapVertices.push(voxel.map((n, i) => n += this.extrudeVector[i]));
-            }
-            this.extrudeEndCap.changeVertices(endCapVertices).generateEdges().fillPolygon();
             let edgeDirectoryVoxels = this.extrudeObject.getEdgeVoxels();
             if (edgeDirectoryVoxels.length === 0) {
                 console.warn("extrudeVoxels error dectected, printing layer:");
@@ -2527,7 +2598,7 @@ export class LayerVectorExtrude extends BaseObject {
                 throw new ReferenceError("LayerVectorExtrude layer " + this.extrudeObject.uuid + " has no voxels within the edge directory.");
             }
             for (let voxel of edgeDirectoryVoxels) {
-                BaseObject.push2D(BaseObject.graph3DParametric(...voxel, ...voxel.map((n, i) => n += this.extrudeVector[i])).slice(1, -2), this._fillVoxels);
+                BaseObject.push2D(BaseObject.graph3DParametric(...voxel, ...voxel.map((n, i) => n += this.extrudeVector[i])).slice(1, -1), this._fillVoxels);
             }
             BaseObject.push2D(this.extrudeEndCap.getFillVoxels(), this._fillVoxels);
             BaseObject.push2D(this.extrudeObject.getFillVoxels(), this._fillVoxels);
@@ -2538,6 +2609,185 @@ export class LayerVectorExtrude extends BaseObject {
             }
         }
         this.calculateBoundingBox();
+        return this;
+    }
+}
+export var LayerConvexExtrudeEdgeDirectoryOptions;
+(function (LayerConvexExtrudeEdgeDirectoryOptions) {
+    LayerConvexExtrudeEdgeDirectoryOptions["RETURN_MODE_FULL_DIRECTORY"] = "RETURN_MODE_FULL_DIRECTORY";
+    LayerConvexExtrudeEdgeDirectoryOptions["RETURN_MODE_VOXELS"] = "RETURN_MODE_VOXELS";
+})(LayerConvexExtrudeEdgeDirectoryOptions || (LayerConvexExtrudeEdgeDirectoryOptions = {}));
+/**
+ * This extrusion takes in any amount of layers and creates a fluid extrusion between them via Convex Hulls.
+ */
+export class LayerConvexExtrude extends BaseObject {
+    shell;
+    /**
+     * The layers to extrude between, where order matters.
+     */
+    extrudeObjects;
+    /**
+     * The extrusion is divided up into sections, with every two layer object grouped into one section.
+     *
+     * Each of these sections is stored as an indepedent VoxelCollection within the edgeDirectory.
+     *
+     * The voxels of each section overlap, so use {@link LayerConvexExtrude.getEdgeDirectory} to retrieve a duplicate free version.
+     */
+    edgeDirectory;
+    constructor(options) {
+        super({
+            "controller": options.controller,
+            "origin": options.origin
+        });
+        this.extrudeObjects = options.extrudeObjects;
+        this.edgeDirectory = {};
+        this.shell = false;
+    }
+    static pointOrientation(p1, p2, p3) {
+        // If the slope from p1 to p2 is less than the slope from p2 to p3, 
+        // then the points are trending counter clockwise. 
+        return (p2[1] - p1[1]) * (p3[0] - p2[0]) - (p3[1] - p2[1]) * (p2[0] - p1[0]);
+    }
+    static convexHull(inputPoints) {
+        if (inputPoints.length <= 3) {
+            return inputPoints;
+        }
+        // Sort the data set from lowest x value to highest
+        let sortedPoints = inputPoints.sort((a, b) => a[0] - b[0]);
+        let convexHull = [sortedPoints[0]];
+        // Start with a point we know is on the hull
+        let pointOnHull = sortedPoints[0];
+        while (true) {
+            for (let i = 1; i < sortedPoints.length; i++) {
+                // Grab the potinal for the next point.
+                let nextPoint = sortedPoints[i];
+                // Loop back through again and confirm that this is the most counterclockwise point
+                for (let j = 0; j < sortedPoints.length; j++) {
+                    // If a point on the hull is more counter clockwise than this current point
+                    if (LayerConvexExtrude.pointOrientation(pointOnHull, nextPoint, sortedPoints[j]) < 0) {
+                        // This should be the next point instead
+                        nextPoint = [...sortedPoints[j]];
+                        // And that when we come back around for a new nextPoint, 
+                        // don't go back over values already checked.
+                        i = j;
+                    }
+                }
+                // If we have come back around
+                if (JSON.stringify(nextPoint) === JSON.stringify(sortedPoints[0])) {
+                    return convexHull;
+                }
+                // After we found the new value of the nextPoint, add it to the hull
+                convexHull.push([...nextPoint]);
+                // Now we restart the loop again, with this new hull point.
+                pointOnHull = [...nextPoint];
+            }
+        }
+    }
+    generateEdges() {
+        this.resetEdgeDirectory();
+        // 1 2
+        // 0 1
+        // the coordinates of the line just made
+        let sectionKey = 0;
+        // The current Line
+        let lineVoxelCollection = new VoxelCollection({
+            "controller": this.controller,
+            "origin": [0, 0, 0],
+            "fillVoxels": []
+        });
+        // The computation median between the line and the current section
+        let compositeMedian = new CompositeVoxelCollection({
+            "controller": this.controller,
+            "origin": [0, 0, 0],
+            "variableNames": {},
+            "log": false
+        });
+        // For all extrude objects
+        for (let i = 0; i < this.extrudeObjects.length; i++) {
+            if (i + 1 < this.extrudeObjects.length) {
+                // Create a new collection for this section of the extrude
+                var sectionVoxelCollection = new VoxelCollection({
+                    "controller": this.controller,
+                    "origin": [0, 0, 0],
+                    "fillVoxels": []
+                });
+                // Change the composite medican varaibles to be the current section and the lines themself. 
+                compositeMedian.changeNames({
+                    [sectionVoxelCollection.uuid]: sectionVoxelCollection,
+                    [lineVoxelCollection.uuid]: lineVoxelCollection
+                });
+                // Set the equation to the this new section + the line varaible. 
+                compositeMedian.setEquation(lineVoxelCollection.uuid + compositeMedian.tokens.SUBTRACTION_OP + sectionVoxelCollection.uuid);
+                // reset it for each new section calculauted 
+                lineVoxelCollection.setFillVoxels([]);
+                // Extrude all vertices from start of section layer to end of section layer
+                let startObject = this.extrudeObjects[i];
+                let endObject = this.extrudeObjects[i + 1];
+                let startV = startObject.getVerticeVoxels();
+                let endV = endObject.getVerticeVoxels();
+                for (let SV of startV) {
+                    for (let EV of endV) {
+                        // Set the fille voxels of the current lineCollection to the outputted line calculation
+                        lineVoxelCollection.setFillVoxels(BaseObject.graph3DParametric(...SV, ...EV));
+                        // THen, add these new voxels to the section, removing duplicates by subtracting.
+                        sectionVoxelCollection.addFillVoxels(compositeMedian.interpretAST().getFillVoxels());
+                    }
+                }
+                // Now generate the convex hull for this group of voxels.
+                let newFillVoxel = [];
+                for (let key of Object.keys(sectionVoxelCollection.sortedFillVoxelsDirectory)) {
+                    BaseObject.push2D(LayerConvexExtrude.convexHull(sectionVoxelCollection.sortedFillVoxelsDirectory[Number(key)]), newFillVoxel);
+                }
+                // Saves n time complexity by directly setting the newFillVoxels as a pointer in memory
+                // Know we can gurantee that each sectionVoxelCollection.sortedFillVoxelsDirectory[key] is a convex hull for extrude
+                sectionVoxelCollection._fillVoxels = newFillVoxel;
+                sectionVoxelCollection.calculateBoundingBox();
+                // Saves these voxels
+                this.edgeDirectory[sectionKey] = sectionVoxelCollection;
+                sectionKey++;
+            }
+        }
+        // Once we are done, combine all of the information into fillVoxels
+        let equation = "";
+        let fillVoxelNamesAllSections = {};
+        let keys = Object.keys(this.edgeDirectory);
+        for (let i = 0; i < keys.length; i++) {
+            let key = keys[i];
+            equation += this.edgeDirectory[key].uuid;
+            fillVoxelNamesAllSections[key] = this.edgeDirectory[key];
+            if (i + 1 !== keys.length) {
+                equation += compositeMedian.tokens.UNION_OP;
+            }
+        }
+        compositeMedian.changeNames(fillVoxelNamesAllSections);
+        BaseObject.push2D(compositeMedian.setEquation(equation).interpretAST().getFillVoxels(), this._fillVoxels);
+        compositeMedian.delete();
+        lineVoxelCollection.delete();
+        this.calculateBoundingBox();
+        return this;
+    }
+    getEdgeDirectory(mode) {
+        if (mode === LayerConvexExtrudeEdgeDirectoryOptions.RETURN_MODE_FULL_DIRECTORY) {
+            let output = {};
+            for (let key of Object.keys(this.edgeDirectory)) {
+                output[key] = this.edgeDirectory[key].getFillVoxels();
+            }
+            return output;
+        }
+        else if (mode === LayerConvexExtrudeEdgeDirectoryOptions.RETURN_MODE_VOXELS) {
+            return [];
+        }
+        else {
+            throw new ReferenceError("Invalid getEdgeDirectory mode, must be either 'RETURN_MODE_FULL_DIRECTORY' or 'RETURN_MODE_VOXELS'");
+        }
+    }
+    resetEdgeDirectory() {
+        this.shell = false;
+        this._fillVoxels = [];
+        for (let key of Object.keys(this.edgeDirectory)) {
+            this.edgeDirectory[key].delete();
+            delete this.edgeDirectory[key];
+        }
         return this;
     }
 }
