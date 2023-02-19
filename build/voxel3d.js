@@ -348,38 +348,35 @@ export class BoundingBox {
         }
         return entryCount;
     }
-    /**
-    * @remarks Checks if a horizontal line, ranging from positive to negative infinity on the x-axis, that passes through a given voxel V, will intersect the rectangular plane defined by voxels BL, BR, and UL.
-    * @param  V Given Point
-    * @param BL Bottom left of plane
-    * @param  BR Bottom right of plane
-    * @param  UL Upper left of plane
-    * @returns True if the vector passes through, false otherwise.
-    */
-    static horizontalCheck(V, BL, BR, UL) {
-        return (V[2] >= BL[2] && V[2] <= BR[2] && V[1] >= BL[1] && V[1] <= UL[1]);
+    static horizontalLineCheck(LP, RP, BL, BR, UL) {
+        return LP[0] <= BL[0] &&
+            RP[0] >= BL[0] &&
+            LP[1] <= UL[1] &&
+            LP[1] >= BL[1] &&
+            LP[2] >= BL[2] &&
+            LP[2] <= BR[2];
     }
-    /**
-     * @remarks Checks if a vertical line, ranging from positive to negative infinity on the y-axis, that passes through a given voxel V, will intersect the rectangular plane defined by voxels BL, BR, and UL.
-     * @param  V Given Point
-     * @param  BL Bottom left of plane
-     * @param  BR Bottom right of plane
-     * @param UL Upper left of plane
-     * @returns True if the vector passes through, false otherwise.
-     */
-    static verticalCheck(V, BL, BR, UL) {
-        return (V[0] >= BL[0] && V[0] <= BR[0] && V[2] <= UL[2] && V[2] >= BL[2]);
+    // -y to +y 
+    // bl = -z
+    // br = + z
+    // UL = -Z
+    static verticalLineCheck(BP, TP, BL, BR, UL) {
+        return BP[1] <= BL[1] && // bottom-y <= bl-y
+            TP[1] >= BL[1] && // top-y >= bl-y
+            BP[0] <= UL[0] &&
+            BP[0] >= BL[0] &&
+            BP[2] >= BR[2] &&
+            BP[2] <= BL[2];
     }
-    /**
-   * @remarks Checks if a depth line, ranging from positive to negative infinity on the z-axis, that passes through a given voxel V, will intersect the rectangular plane defined by voxels BL, BR, and UL.
-   * @param  V Given Point
-   * @param BL Bottom left of plane
-   * @param  BR Bottom right of plane
-   * @param  UL Upper left of plane
-   * @returns True if the vector passes through, false otherwise.
-   */
-    static depthCheck(V, BL, BR, UL) {
-        return (V[0] >= BL[0] && V[0] <= BR[0] && V[1] <= UL[1] && V[1] >= BL[1]);
+    // -z to +z
+    // back points, forward point
+    static depthLineCheck(BP, FP, BL, BR, UL) {
+        return BP[2] <= BL[2] &&
+            FP[2] >= BL[2] &&
+            BP[0] >= BL[0] &&
+            BP[0] <= BR[0] &&
+            BP[1] >= BL[1] &&
+            BP[1] <= UL[1];
     }
     /**
     * @remarks Defines the ordered pairs of vertices from a {@link BoundingBox.boundingBox} for use within the {@link BoundingBox.boundingBoxIntersect} method.
@@ -410,96 +407,63 @@ export class BoundingBox {
     */
     static boundingBoxIntersect(b1, b2) {
         const b3 = BoundingBox.getEmptyBoundingTemplate();
-        if (BoundingBox.findEntryCount(b1) < 8) {
-            b1 = BoundingBox.correctBoundingBox(b1)[1];
-            if (BoundingBox.findEntryCount(b1) < 8) {
-                return [false, BoundingBox.getEmptyBoundingTemplate()];
-            }
-        }
-        else if (BoundingBox.findEntryCount(b2) < 8) {
-            b2 = BoundingBox.correctBoundingBox(b2)[1];
-            if (BoundingBox.findEntryCount(b2) < 8) {
-                return [false, BoundingBox.getEmptyBoundingTemplate()];
-            }
-        }
         // Despite B1 being now a valid CompleteBoundingBox, since the inital input of it was a OR type, I can not access the box.
         // So I must re-create the boxes as a new strict type 
-        let assertedB1 = b1;
-        let assertedB2 = b2;
-        for (let xp of this.#VP[0]) {
-            // check if b1 is inside b2
-            // if xp0 and xp1's vectors extending infitly in x direction,
-            // pass through planes defined by 0,4,2 and 1,5,3
-            let left = BoundingBox.horizontalCheck(assertedB1[xp[0] + ""], assertedB2[0], assertedB2[2], assertedB2[4]);
-            let right = BoundingBox.horizontalCheck(assertedB1[xp[1] + ""], assertedB2[1], assertedB2[3], assertedB2[5]);
-            if (left && right) {
-                // b1-left-x <= b2-0-x
-                if (assertedB1[xp[0] + ""][0] <= assertedB2[0][0]) {
-                    // b3-left = b2-0-x, b1-left-y, b1-left-z
-                    b3[xp[0] + ""] = [assertedB2[0][0], assertedB1[xp[0] + ""][1], assertedB1[xp[0] + ""][2]];
-                }
-                else {
-                    // b3-left = b1-left
-                    b3[xp[0] + ""] = [...assertedB1[xp[0] + ""]];
-                }
-                // b1-right-x >= b2-right-x
-                if (assertedB1[xp[1] + ""][0] >= assertedB2[1][0]) {
-                    // b3-right = b2-right-x, b1-right-y, b1-right-z
-                    b3[xp[1] + ""] = [assertedB2[1][0], assertedB1[xp[1] + ""][1], assertedB1[xp[1] + ""][2]];
-                }
-                else {
-                    // b3-right = b1-right
-                    b3[xp[1] + ""] = [...assertedB1[xp[1] + ""]];
-                }
+        for (let XP of BoundingBox.#VP[0]) {
+            // XP is [0,1] for example
+            let LP = b1["" + XP[0]];
+            let RP = b1["" + XP[1]];
+            let left_plane = BoundingBox.horizontalLineCheck(LP, RP, b2[4], b2[0], b2[6]);
+            let right_plane = BoundingBox.horizontalLineCheck(LP, RP, b2[5], b2[1], b2[7]);
+            // left_plane will decide b3[0], right_plane decides b3[1]
+            if (left_plane) {
+                b3["" + XP[0]] = [b2[0][0], LP[1], LP[2]];
+            }
+            if (right_plane) {
+                b3["" + XP[1]] = [b2[1][0], RP[1], RP[2]];
+            }
+            if (BoundingBox.isInside(LP, b2)) {
+                b3["" + XP[0]] = [...LP];
+            }
+            if (BoundingBox.isInside(RP, b2)) {
+                b3["" + XP[1]] = [...RP];
             }
         }
-        for (let yp of this.#VP[1]) {
-            // if down's vectors extends through plane 0, 1, 4
-            let down = BoundingBox.verticalCheck(assertedB1[yp[0] + ""], assertedB2[0], assertedB2[1], assertedB2[4]);
-            // if ups vectors extends through plane 2, 3, 6
-            let up = BoundingBox.verticalCheck(assertedB1[yp[1] + ""], assertedB2[2], assertedB2[3], assertedB2[6]);
-            if (up && down) {
-                // b1-down-y >= b2-2-y
-                if (assertedB1[yp[0] + ""][1] <= assertedB2[1][1]) {
-                    // b3-down = b1-down-x, b2-0-y, b1-down-z
-                    b3[yp[0] + ""] = [assertedB1[yp[0] + ""][0], assertedB2[0][1], assertedB1[yp[0] + ""][2]];
-                }
-                else {
-                    // b3-down = b1-down
-                    b3[yp[0] + ""] = [...assertedB1[yp[0] + ""]];
-                }
-                // b1-up-y >= b2-2-y
-                if (assertedB1[yp[1] + ""][1] >= assertedB2[2][1]) {
-                    // b3-up = b1-up-x, b2-0-y, b1-up-z
-                    b3[yp[1] + ""] = [assertedB1[yp[1] + ""][0], assertedB2[2][1], assertedB1[yp[1] + ""][2]];
-                }
-                else {
-                    // b3-up = b2-up
-                    b3[yp[1] + ""] = [...assertedB1[yp[1] + ""]];
-                }
+        for (let YP of BoundingBox.#VP[1]) {
+            // vp could be [0,2]
+            let BP = b1["" + YP[0]];
+            let TP = b1["" + YP[1]];
+            let top_plane = BoundingBox.verticalLineCheck(BP, TP, b2[6], b2[2], b2[7]);
+            let bottom_plane = BoundingBox.verticalLineCheck(BP, TP, b2[4], b2[0], b2[5]);
+            if (bottom_plane) {
+                b3["" + YP[0]] = [BP[0], b2[0][1], BP[2]];
+            }
+            if (top_plane) {
+                b3["" + YP[1]] = [BP[0], b2[6][1], BP[2]];
+            }
+            if (BoundingBox.isInside(BP, b2)) {
+                b3["" + YP[0]] = [...BP];
+            }
+            if (BoundingBox.isInside(TP, b2)) {
+                b3["" + YP[1]] = [...TP];
             }
         }
-        for (let zp of this.#VP[2]) {
-            // if closet point vector extends through plane 4,5,6
-            let closet = BoundingBox.depthCheck(assertedB1[zp[0] + ""], assertedB2[0], assertedB2[1], assertedB2[2]);
-            // if farthest points vector extends through 0,1,2
-            let further = BoundingBox.depthCheck(assertedB1[zp[1] + ""], assertedB2[4], assertedB2[5], assertedB2[6]);
-            // if both these poins align through the planes
-            if (closet && further) {
-                // b1-close-z <= b2-0-z
-                if (assertedB1[zp[0] + ""][2] <= assertedB2[0][2]) {
-                    // b3-close = close-x, close-y b2-0-z
-                    b3[zp[0] + ""] = [assertedB1[zp[0] + ""][0], assertedB1[zp[0] + ""][1], assertedB2[0][2]];
-                }
-                else {
-                    // b3-close = b1-close
-                    b3[zp[0] + ""] = [...assertedB1[zp[1] + ""]];
-                }
-                // b1-far-z >= b2-6-2
-                if (assertedB1[zp[1] + ""][2] >= assertedB2[6][2]) {
-                    // b3-far = far-x. far-y. b2-6-z
-                    b3[zp[1] + ""] = [assertedB1[zp[1] + ""][0], assertedB1[zp[1] + ""][1], assertedB2[6][2]];
-                }
+        for (let ZP of BoundingBox.#VP[2]) {
+            let BP = b1["" + ZP[0]];
+            let FP = b1["" + ZP[1]];
+            let back_plane = BoundingBox.depthLineCheck(BP, FP, b2[0], b2[1], b2[2]);
+            let forward_plane = BoundingBox.depthLineCheck(FP, FP, b2[4], b2[5], b2[6]);
+            if (back_plane) {
+                b3["" + ZP[0]] = [BP[1], BP[2], b2[0][2]];
+            }
+            if (forward_plane) {
+                b3["" + ZP[1]] = [BP[1], BP[2], b2[4][2]];
+            }
+            if (BoundingBox.isInside(BP, b2)) {
+                b3["" + ZP[0]] = [...BP];
+            }
+            if (BoundingBox.isInside(FP, b2)) {
+                b3["" + ZP[1]] = [...FP];
             }
         }
         return BoundingBox.correctBoundingBox(b3);
@@ -923,10 +887,10 @@ export class BaseObject {
      * As a result, running this function when you have no voxels will result in creating a {@link ZeroVolumeBoundingBox}, an empty {@link JointBoundingBox}, and an empty {@link BaseObject.sortedFillVoxelsDirectory}
     */
     calculateBoundingBox() {
+        this.sortedFillVoxelsDirectory = {};
         if (this._fillVoxels.length === 0) {
             this.boundingBox = { boundingBox: BoundingBox.getEmptyBoundingTemplate() };
             this.jointBoundingBox = new JointBoundingBox([]);
-            this.sortedFillVoxelsDirectory = {};
         }
         else {
             this.boundingBox = new BoundingBox({
@@ -1197,6 +1161,7 @@ export class Line extends BaseObject {
      * The outputted {@link Line._fillVoxels} are sorted by the first, second, and then third smallest axes order.
      */
     generateLine() {
+        this._fillVoxels = [];
         const { biggestRangeIndex } = this.boundingBox;
         let startToEnd = BaseObject.graph3DParametric(...this._endPoints[0], ...this._endPoints[1]);
         BaseObject.push2D(startToEnd, this._fillVoxels);
@@ -1284,35 +1249,29 @@ export class Layer extends BaseObject {
         });
         this.edgeDirectory = {};
         // If this shape has more then 1 vertice
-        if (this._verticesArray.length > 1) {
-            // Loop through all the vertices
-            for (let i = 0; i < this._verticesArray.length; i++) {
-                // If we are at the last vertices in the list, draw back to the first one.
-                let startIndex = i;
-                let endIndex;
-                if (i + 1 === this._verticesArray.length) {
-                    endIndex = 0;
-                }
-                else {
-                    endIndex = i + 1;
-                }
-                let entryKey = `V${startIndex}V${endIndex}`;
-                /*
-                   Since we are using a rasterization,
-                   drawing a line from two given points will results in different values
-                   depending on if you go from start to end or end to start order
-                   A double sided line is used.
-                */
-                tempLine.changeEndPoints([this._verticesArray[startIndex], this._verticesArray[endIndex]]);
-                tempLine.generateLine();
-                let lineFillVoxels = tempLine.getFillVoxels();
-                this.edgeDirectory[entryKey] = lineFillVoxels;
-                BaseObject.push2D(this.edgeDirectory[entryKey].slice(1, lineFillVoxels.length - 1), this._fillVoxels);
+        // Loop through all the vertices
+        for (let i = 0; i < this._verticesArray.length; i++) {
+            // If we are at the last vertices in the list, draw back to the first one.
+            let startIndex = i;
+            let endIndex;
+            if (i + 1 === this._verticesArray.length) {
+                endIndex = 0;
             }
-        }
-        else {
-            this.edgeDirectory["V0V0"] = [[...this._verticesArray[0]]];
-            this._fillVoxels.push([...this._verticesArray[0]]);
+            else {
+                endIndex = i + 1;
+            }
+            let entryKey = `V${startIndex}V${endIndex}`;
+            /*
+               Since we are using a rasterization,
+               drawing a line from two given points will results in different values
+               depending on if you go from start to end or end to start order
+               A double sided line is used.
+            */
+            tempLine.changeEndPoints([this._verticesArray[startIndex], this._verticesArray[endIndex]]);
+            tempLine.generateLine();
+            let lineFillVoxels = tempLine.getFillVoxels();
+            this.edgeDirectory[entryKey] = lineFillVoxels;
+            BaseObject.push2D(this.edgeDirectory[entryKey].slice(1, lineFillVoxels.length - 1), this._fillVoxels);
         }
         BaseObject.push2D(this._verticesArray, this._fillVoxels);
         tempLine.delete();
@@ -2292,7 +2251,7 @@ export class CompositeVoxelCollection extends BaseObject {
         this.variableNames = options.variableNames;
         this.equationInstance = new SetOperationsEquation("", options.log);
         this._fillVoxels = [];
-        for (let key in Object.keys(this.variableNames)) {
+        for (let key of Object.keys(this.variableNames)) {
             BaseObject.push2D(this.variableNames[key].getFillVoxels(), this._fillVoxels);
         }
         this.calculateBoundingBox();
@@ -2305,19 +2264,21 @@ export class CompositeVoxelCollection extends BaseObject {
         for (let i = 0; i < prevHeapKeys.length; i++) {
             if (prevHeapKeys[i] !== this.tokens.UNIVERSAL_SET || prevHeapKeys[i] !== this.tokens.NULL_SET) {
                 this.virtualCache[prevHeapKeys[i]].delete();
+                delete this.virtualCache[prevHeapKeys[i]];
             }
         }
         let voxels = [];
-        for (let key in Object.keys(this.variableNames)) {
+        for (let key of Object.keys(this.variableNames)) {
             BaseObject.push2D(this.variableNames[key].getFillVoxels(), voxels);
         }
         this.virtualCache = {
             [this.tokens.UNIVERSAL_SET]: new VoxelCollection({ controller: this.controller, fillVoxels: voxels, origin: this._origin }),
             [this.tokens.NULL_SET]: new VoxelCollection({ controller: this.controller, fillVoxels: [], origin: this._origin })
         };
+        return this;
     }
     changeNames(variableNames) {
-        this.variableNames = variableNames;
+        this.variableNames = Object.assign({}, variableNames);
         this.resetVirtualCache();
         return this;
     }
@@ -2354,26 +2315,15 @@ export class CompositeVoxelCollection extends BaseObject {
             else if (typeof token1 === "string") {
                 token1 = this.variableNames[token1];
             }
+            if (token1 === undefined) {
+                throw new TypeError("Token 1 undefined");
+            }
         }
         catch (e) {
             console.warn("Interpet Error: logging heap and names");
             console.warn(this.virtualCache);
             console.warn(this.variableNames);
             throw new ReferenceError("Unable to find the heap address for token1: " + token1);
-        }
-        try {
-            if (typeof token2 === "string" && (token2 === this.tokens.UNIVERSAL_SET || token2 === this.tokens.NULL_SET)) {
-                token2 = this.virtualCache[token2];
-            }
-            else if (typeof token2 === "string") {
-                token2 = this.variableNames[token2];
-            }
-        }
-        catch (e) {
-            console.warn("Interpet Error: logging heap and names");
-            console.warn(this.virtualCache);
-            console.warn(this.variableNames);
-            throw new ReferenceError("Unable to find the heap address or variableNames address for token2: " + token2);
         }
         // Now that the values have been re-trieved, make sure to terminate if the layer is one in length
         if (layer.length === 1) {
@@ -2384,6 +2334,23 @@ export class CompositeVoxelCollection extends BaseObject {
             console.warn(this.virtualCache);
             console.warn(this.variableNames);
             throw new ReferenceError("Invalid sub-equation length two from AST layer: " + token1);
+        }
+        try {
+            if (typeof token2 === "string" && (token2 === this.tokens.UNIVERSAL_SET || token2 === this.tokens.NULL_SET)) {
+                token2 = this.virtualCache[token2];
+            }
+            else if (typeof token2 === "string") {
+                token2 = this.variableNames[token2];
+            }
+            if (token2 === undefined) {
+                throw new TypeError("Token 2 undefined");
+            }
+        }
+        catch (e) {
+            console.warn("Interpet Error: logging heap and names");
+            console.warn(this.virtualCache);
+            console.warn(this.variableNames);
+            throw new ReferenceError("Unable to find the heap address or variableNames address for token2: " + token2);
         }
         let memoryQueryOne = token1.uuid + operation + token2.uuid;
         let memoryQueryTwo = token2.uuid + operation + token1.uuid;
@@ -2409,7 +2376,11 @@ export class CompositeVoxelCollection extends BaseObject {
             }
             else if (operation === this.tokens.SUBTRACTION_OP || operation === this.tokens.SYMM_DIFF_OP) {
                 // Do some pointer assignments so 
-                this.virtualCache[memoryQueryOne] = this.virtualCache[this.tokens.NULL_SET];
+                this.virtualCache[memoryQueryOne] = new VoxelCollection({
+                    controller: this.controller,
+                    fillVoxels: [],
+                    origin: [0, 0, 0]
+                });
             }
             return this.virtualCache[memoryQueryOne];
         }
@@ -2457,10 +2428,15 @@ export class CompositeVoxelCollection extends BaseObject {
         let newFillVoxels = [];
         if (operation === this.tokens.INTERSECTION_OP) {
             if (joint.length === 0) {
-                this.virtualCache[memoryQueryOne] = this.virtualCache[this.tokens.NULL_SET];
-                return this.virtualCache[this.tokens.NULL_SET];
+                this.virtualCache[memoryQueryOne] = new VoxelCollection({
+                    controller: this.controller,
+                    fillVoxels: [],
+                    origin: [0, 0, 0]
+                });
+                return this.virtualCache[memoryQueryOne];
             }
             else {
+                // Otherwise, the joint is valid and can be used for cache later on.
                 newFillVoxels = joint;
             }
         }
@@ -2492,10 +2468,10 @@ export class CompositeVoxelCollection extends BaseObject {
         // This object is only temporary, but since it is the result from the recursive function, 
         // we can only remove the records after the stack collapse.
         let solvedASTJoint = this.#recursiveSolver(this.equationInstance.getAST(), 0);
-        solvedASTJoint.delete();
         this._fillVoxels = solvedASTJoint._fillVoxels;
         // fill voxels has changed, so we need to calculaute bounding boxes again.
         this.calculateBoundingBox();
+        solvedASTJoint.delete();
         return this;
     }
 }
@@ -2754,7 +2730,7 @@ export class LayerConvexExtrude extends BaseObject {
         for (let i = 0; i < keys.length; i++) {
             let key = keys[i];
             equation += this.edgeDirectory[key].uuid;
-            fillVoxelNamesAllSections[key] = this.edgeDirectory[key];
+            fillVoxelNamesAllSections[this.edgeDirectory[key].uuid] = this.edgeDirectory[key];
             if (i + 1 !== keys.length) {
                 equation += compositeMedian.tokens.UNION_OP;
             }
