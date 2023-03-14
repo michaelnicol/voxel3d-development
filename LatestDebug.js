@@ -2460,7 +2460,6 @@ export class CompositeVoxelCollection extends BaseObject {
    delete () {
       this.controller.removeID(this.uuid);
       this._fillVoxels = [];
-      this._edgeVoxels = [];
       this.calculateBoundingBox();
       this.resetVirtualCache();
       this.uuid = "";
