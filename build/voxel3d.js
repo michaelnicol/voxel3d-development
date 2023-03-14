@@ -42,7 +42,7 @@ export class JointBoundingBox {
             return false;
         }
         for (let i = 0; i < this.boundingBoxes.length; i++) {
-            if (BoundingBox.isInside(point, this.boundingBoxes[i].boundingBox)) {
+            if (BoundingBox.isInside(point, this.boundingBoxes[i].boundingBoxPointData)) {
                 return true;
             }
         }
@@ -58,10 +58,10 @@ export class JointBoundingBox {
                 return prev.push(JSON.parse(JSON.stringify(curr))), prev;
             }
             else if (mode === JointBoundingBoxActions.RETURN_MODE_VOXELS_DIRECTORY) {
-                return prev.push(JSON.parse(JSON.stringify(curr.boundingBox))), prev;
+                return prev.push(JSON.parse(JSON.stringify(curr.boundingBoxPointData))), prev;
             }
             else if (mode === JointBoundingBoxActions.RETURN_MODE_VOXELS) {
-                return prev.push(...BoundingBox.compileBoundingDirectory(curr.boundingBox)), prev;
+                return prev.push(...BoundingBox.compileBoundingDirectory(curr.boundingBoxPointData)), prev;
             }
             else {
                 throw new TypeError("Invalid Mode");
@@ -94,28 +94,25 @@ export class BoundingBox {
     /**
      * Stores the XYZ corner data of all eight vertices of the current bounding box.
      *
-     * In the context of bounding boxes, the backwards face is the one closet to the viewer.
-     * The forward face is the one furthest away
+     * Each vertice has a unique position define as [Front|Back],[Right|Left],[Top|Bottom]
      *
-     * Breakdown of the unit box, which is a square of side length one. A side length of one is the shortest it can be whilst still fitting the libraries tesselation.
+     * 0 = Front Left Bottom (FLB): [0,0,0]
      *
-     * 0 = Backwards Lower Left: [0,0,0]
+     * 1 = Front Right Bottom (FRB): [1,0,0]
      *
-     * 1 = Backwards Lower Right: [1,0,0]
+     * 2 = Front Left Top (FLT): [0,1,0]
      *
-     * 2 = Backwards Upper Left: [0,1,0]
+     * 3 = Front Right Top (FRT): [1,1,0]
      *
-     * 3 = Backwards Upper Right: [1,1,0]
+     * 4 = Back Left Bottom (BLB): [0,0,1]
      *
-     * 4 = Forwards Lower Left: [0,0,1]
+     * 5 = Back Right Bottom (BRB): [1,0,1]
      *
-     * 5 = Forwards Lower Right: [1,0,1]
+     * 6 = Back Left Top (BLT): [0,1,1]
      *
-     * 6 = Forwards Upper Left: [0,1,1]
-     *
-     * 7 = Forwards Upper Right: [1,1,1]
+     * 7 = Back Top Right (BTR): [1,1,1]
      */
-    boundingBox = {
+    boundingBoxPointData = {
         "0": [0, 0, 0],
         "1": [0, 0, 0],
         "2": [0, 0, 0],
@@ -244,7 +241,7 @@ export class BoundingBox {
     setBoundingBox(boundingBoxStructure) {
         for (let i = 0; i < BoundingBox.BOX_VERTICE_COUNT; i++) {
             let key = String(i);
-            this.boundingBox[key] = [...boundingBoxStructure[key]];
+            this.boundingBoxPointData[key] = [...boundingBoxStructure[key]];
         }
         this.calculateRange(BoundingBox.compileBoundingDirectory(boundingBoxStructure));
     }
@@ -321,21 +318,21 @@ export class BoundingBox {
     createBoundingBox(array2D) {
         if (array2D.length > 0) {
             this.calculateRange(array2D);
-            this.boundingBox[0] = [this.xLow, this.yLow, this.zLow];
-            this.boundingBox[1] = [this.xHigh, this.yLow, this.zLow];
-            this.boundingBox[2] = [this.xLow, this.yHigh, this.zLow];
-            this.boundingBox[3] = [this.xHigh, this.yHigh, this.zLow];
-            this.boundingBox[4] = [this.xLow, this.yLow, this.zHigh];
-            this.boundingBox[5] = [this.xHigh, this.yLow, this.zHigh];
-            this.boundingBox[6] = [this.xLow, this.yHigh, this.zHigh];
-            this.boundingBox[7] = [this.xHigh, this.yHigh, this.zHigh];
+            this.boundingBoxPointData[0] = [this.xLow, this.yLow, this.zLow];
+            this.boundingBoxPointData[1] = [this.xHigh, this.yLow, this.zLow];
+            this.boundingBoxPointData[2] = [this.xLow, this.yHigh, this.zLow];
+            this.boundingBoxPointData[3] = [this.xHigh, this.yHigh, this.zLow];
+            this.boundingBoxPointData[4] = [this.xLow, this.yLow, this.zHigh];
+            this.boundingBoxPointData[5] = [this.xHigh, this.yLow, this.zHigh];
+            this.boundingBoxPointData[6] = [this.xLow, this.yHigh, this.zHigh];
+            this.boundingBoxPointData[7] = [this.xHigh, this.yHigh, this.zHigh];
         }
         else {
             throw new RangeError("Invalid BoundingBox.createBoundingBox argument: array2D must contain at least one XYZ voxel.");
         }
     }
     /**
-     * Returns the amount of entries within a {@link PartialBoundingBox} that are valid {@link Voxel}, used by the {@link BoundingBox.correctBoundingBox} method.
+     * Returns the amount of entries within a {@link PartialBoundingBoxPointData} that are valid {@link Voxel}, used by the {@link BoundingBox.correctBoundingBox} method.
      * @param b3 Bounding Box
      * @returns Count
      */
@@ -348,46 +345,92 @@ export class BoundingBox {
         }
         return entryCount;
     }
-    static horizontalLineCheck(LP, RP, BL, BR, UL) {
-        return LP[0] <= BL[0] &&
-            RP[0] >= BL[0] &&
-            LP[1] <= UL[1] &&
-            LP[1] >= BL[1] &&
-            LP[2] >= BL[2] &&
-            LP[2] <= BR[2];
-    }
-    // -y to +y 
-    // bl = -z
-    // br = + z
-    // UL = -Z
-    static verticalLineCheck(BP, TP, BL, BR, UL) {
-        return BP[1] <= BL[1] && // bottom-y <= bl-y
-            TP[1] >= BL[1] && // top-y >= bl-y
-            BP[0] <= UL[0] &&
-            BP[0] >= BL[0] &&
-            BP[2] >= BR[2] &&
-            BP[2] <= BL[2];
-    }
-    // -z to +z
-    // back points, forward point
-    static depthLineCheck(BP, FP, BL, BR, UL) {
-        return BP[2] <= BL[2] &&
-            FP[2] >= BL[2] &&
-            BP[0] >= BL[0] &&
-            BP[0] <= BR[0] &&
-            BP[1] >= BL[1] &&
-            BP[1] <= UL[1];
+    /**
+     * Check if a horizontal line from LP to RP, passes through a vertical plane defined by three corner points.
+     *
+     * The scheme for vertices is [Front|Back],[Right|Left],[Top|Bottom].
+     *
+     * The abbrivation of "FLoRB" signifies a [Front], [Right or Left], [Bottom point]. This is because the bounding box has two vertical planes
+     * perpendicular to the x-axis, so the programmer can choose between the left or right plane.
+     *
+     * If one corner point is on the left plane, then all other corner points must also be left (and vice versa).
+     *
+     * @param LP Left Point
+     * @param RP Right Point
+     * @param FLoRB [Front], [Right or Left], [Bottom point]
+     * @param FLoRT [Front], [Right or Left], [Top point]
+     * @param BLoRT [Back],  [Right or Left], [Top point]
+     * @returns true if this line passes through this plane, false otherwise.
+     */
+    static horizontalLineCheck(LP, RP, FLoRB, FLoRT, BLoRT) {
+        return LP[0] <= FLoRB[0] &&
+            RP[0] >= FLoRB[0] &&
+            LP[1] >= FLoRB[1] &&
+            LP[1] <= FLoRT[1] &&
+            LP[1] >= FLoRB[1] &&
+            LP[2] >= FLoRT[2] &&
+            LP[2] <= BLoRT[2];
     }
     /**
-    * @remarks Defines the ordered pairs of vertices from a {@link BoundingBox.boundingBox} for use within the {@link BoundingBox.boundingBoxIntersect} method.
+     * Check if a vertical line from TP to BP, passes through a horizontal plane defined by three corner points.
+     *
+     * The scheme for vertices is [Front|Back],[Right|Left],[Top|Bottom].
+     *
+     * The abbrivation of "FLToB" signifies a [Front], [Left], [Top or Bottom]. This is because the bounding box has two horizontal planes
+     * perpendicular to the y-axis, so the programmer can choose between the top or bottom plane.
+     *
+     * If one corner point is on the top plane, then all other corner points must also be top (and vice versa).
+     *
+     * @param TP Top Point
+     * @param BP Bottom Point
+     * @param FLToB [Front], [Left], [Top or Bottom]
+     * @param BLToB [Back], [Left], [Top or Bottom]
+     * @param FRToB [Front], [Right], [Top or Bottom]
+     * @returns true if this line passes through this plane, false otherwise.
+     */
+    static verticalLineCheck(TP, BP, FLToB, BLToB, FRToB) {
+        return TP[0] >= FLToB[0] &&
+            TP[0] <= FRToB[0] &&
+            TP[1] >= FLToB[1] &&
+            BP[1] <= FLToB[1] &&
+            TP[2] >= FLToB[2] &&
+            TP[2] <= BLToB[2];
+    }
+    /**
+     * Check if a horizontal line (From -Z to +Z) from FP to BP, passes through a Vertical (front or back) plane defined by three corner points.
+     *
+     * The scheme for vertices is [Front|Back],[Right|Left],[Top|Bottom].
+     *
+     * The abbrivation of "FoBLB" signifies a [Front or Back], [Left], [Bottom]. This is because the bounding box has a back and front plane
+     * perpendicular to the z-axis, so the programmer can choose between the two.
+     *
+     * If one corner point is on the front plane, then all other corner points must also be front plane (and vice versa for back plane).
+     *
+     * @param FP Front Point
+     * @param BP Back Point
+     * @param FoBLB [Front or Back], [Left], [Bottom]
+     * @param FoBRB [Front or Back], [Right], [Bottom]
+     * @param FoBLT [Front or Back], [Left], [Top]
+     * @returns true if this line passes through this plane, false otherwise.
+     */
+    static depthLineCheck(FP, BP, FoBLB, FoBRB, FoBLT) {
+        return FP[0] <= FoBRB[0] &&
+            FP[0] >= FoBLT[0] &&
+            FP[1] <= FoBLT[1] &&
+            FP[1] >= FoBLB[1] &&
+            FP[2] <= FoBLB[2] &&
+            BP[2] >= FoBLB[2];
+    }
+    /**
+    * @remarks Defines the ordered pairs of vertices from a {@link BoundingBox.boundingBoxPointData} for use within the {@link BoundingBox.boundingBoxIntersect} method.
     *
     * The first array of pairs signify all of the horizontal edge pairs in left to right order.
     *
     * The second array of pairs signify all of the vertical edge pairs in bottom to top order.
     *
-    * The third array of pairs signify all of the depth edge pairs in forward (towards [0,0,0]) to back (towards [1,1,1]) order.
+    * The third array of pairs signify all of the depth edge pairs from front to back order.
     *
-    * These pairs represent the edges of intersecting boxes. If the 0 to 1 edge from one box passes through vertical x-planes of the intersecting box, the boxes are intersecting and intersection points can be created.
+    * These pairs represent the edges of intersecting boxes. If the vertice 0 to vertice 1 edge from one box passes through vertical perpendicular to x-axis planes of the intersecting box, then intersection points can be created.
     */
     static #VP = [
         [[0, 1], [2, 3], [6, 7], [4, 5]],
@@ -395,83 +438,135 @@ export class BoundingBox {
         [[2, 6], [3, 7], [0, 4], [1, 5]]
     ];
     /**
-    * @remarks Generates a new {@link CompleteBoundingBox} or {@link PartialBoundingBox} from the intersection between two inputted boxes.
+    * @remarks Generates a new {@link CompleteBoundingBoxPointData} or {@link PartialBoundingBoxPointData} from the intersection between two inputted boxes.
     *
     * Used to find the cubic range area that is shared between two boxes, if any.
     *
     * @param b1 Box 1
     * @param b2 Box 2
-    * @returns Returns an array, and if the first element is true, then the second element is the intersection {@link CompleteBoundingBox}.
+    * @returns Returns an array, and if the first element is true, then the second element is the intersection {@link CompleteBoundingBoxPointData}.
     *
-    * Otherwise, the intersection is not possible (false) and the second element will be a {@link PartialBoundingBox}. This partial box will be the method's best attempt to {@link BoundingBox.correctBoundingBox}.
+    * Otherwise, the intersection is not possible (false) and the second element will be a {@link PartialBoundingBoxPointData}. This partial box will be the method's best attempt to {@link BoundingBox.correctBoundingBox}.
     */
     static boundingBoxIntersect(b1, b2) {
-        const b3 = BoundingBox.getEmptyBoundingTemplate();
-        // Despite B1 being now a valid CompleteBoundingBox, since the inital input of it was a OR type, I can not access the box.
-        // So I must re-create the boxes as a new strict type 
+        const B3 = BoundingBox.getEmptyBoundingTemplate();
+        // First, check if any of the horizontal edges from each box pass through each other.
         for (let XP of BoundingBox.#VP[0]) {
             // XP is [0,1] for example
-            let LP = b1["" + XP[0]];
-            let RP = b1["" + XP[1]];
-            let left_plane = BoundingBox.horizontalLineCheck(LP, RP, b2[4], b2[0], b2[6]);
-            let right_plane = BoundingBox.horizontalLineCheck(LP, RP, b2[5], b2[1], b2[7]);
-            // left_plane will decide b3[0], right_plane decides b3[1]
-            if (left_plane) {
-                b3["" + XP[0]] = [b2[0][0], LP[1], LP[2]];
+            let LP1 = b1["" + XP[0]];
+            let RP1 = b1["" + XP[1]];
+            let LP2 = b2["" + XP[0]];
+            let RP2 = b2["" + XP[1]];
+            /**
+             *  static horizontalLineCheck(LP, RP, FLoRB, FLoRT, BLoRT) {
+             */
+            let left_plane1 = BoundingBox.horizontalLineCheck(LP1, RP1, b2[0], b2[2], b2[6]);
+            let right_plane1 = BoundingBox.horizontalLineCheck(LP1, RP1, b2[1], b2[3], b2[7]);
+            let left_plane2 = BoundingBox.horizontalLineCheck(LP2, RP2, b1[0], b1[2], b1[6]);
+            let right_plane2 = BoundingBox.horizontalLineCheck(LP2, RP2, b1[1], b1[3], b1[7]);
+            if (left_plane1) {
+                B3["" + XP[0]] = [b2[0][0], LP1[1], LP1[2]];
             }
-            if (right_plane) {
-                b3["" + XP[1]] = [b2[1][0], RP[1], RP[2]];
+            if (right_plane1) {
+                B3["" + XP[1]] = [b2[1][0], RP1[1], RP1[2]];
             }
-            if (BoundingBox.isInside(LP, b2)) {
-                b3["" + XP[0]] = [...LP];
+            if (left_plane2) {
+                B3["" + XP[0]] = [b1[0][0], LP2[1], LP2[2]];
             }
-            if (BoundingBox.isInside(RP, b2)) {
-                b3["" + XP[1]] = [...RP];
+            if (right_plane2) {
+                B3["" + XP[1]] = [b1[1][0], RP2[1], RP2[2]];
+            }
+            if (BoundingBox.isInside(LP1, b2)) {
+                B3["" + XP[0]] = [...LP1];
+            }
+            if (BoundingBox.isInside(RP1, b2)) {
+                B3["" + XP[1]] = [...RP1];
+            }
+            if (BoundingBox.isInside(LP2, b1)) {
+                B3["" + XP[0]] = [...LP2];
+            }
+            if (BoundingBox.isInside(RP2, b1)) {
+                B3["" + XP[1]] = [...RP2];
             }
         }
         for (let YP of BoundingBox.#VP[1]) {
             // vp could be [0,2]
-            let BP = b1["" + YP[0]];
-            let TP = b1["" + YP[1]];
-            let top_plane = BoundingBox.verticalLineCheck(BP, TP, b2[6], b2[2], b2[7]);
-            let bottom_plane = BoundingBox.verticalLineCheck(BP, TP, b2[4], b2[0], b2[5]);
-            if (bottom_plane) {
-                b3["" + YP[0]] = [BP[0], b2[0][1], BP[2]];
+            let BP1 = b1["" + YP[0]];
+            let TP1 = b1["" + YP[1]];
+            let BP2 = b2["" + YP[0]];
+            let TP2 = b2["" + YP[1]];
+            // static verticalLineCheck(TP, BP, FLToB, BLToB, FRToB) {
+            let top_plane1 = BoundingBox.verticalLineCheck(TP1, BP1, b2[2], b2[6], b2[3]);
+            let bottom_plane1 = BoundingBox.verticalLineCheck(TP1, BP1, b2[0], b2[4], b2[5]);
+            let top_plane2 = BoundingBox.verticalLineCheck(TP2, BP2, b1[2], b1[6], b1[3]);
+            let bottom_plane2 = BoundingBox.verticalLineCheck(TP2, BP2, b1[0], b1[4], b1[5]);
+            if (top_plane1) {
+                B3["" + YP[1]] = [TP1[0], b2[2][1], TP1[2]];
             }
-            if (top_plane) {
-                b3["" + YP[1]] = [BP[0], b2[6][1], BP[2]];
+            if (bottom_plane1) {
+                B3["" + YP[0]] = [BP1[0], b2[0][1], BP1[2]];
             }
-            if (BoundingBox.isInside(BP, b2)) {
-                b3["" + YP[0]] = [...BP];
+            if (top_plane2) {
+                B3["" + YP[1]] = [TP2[0], b1[2][1], TP2[2]];
             }
-            if (BoundingBox.isInside(TP, b2)) {
-                b3["" + YP[1]] = [...TP];
+            if (bottom_plane2) {
+                B3["" + YP[0]] = [BP2[0], b1[0][1], BP2[2]];
+            }
+            if (BoundingBox.isInside(BP1, b2)) {
+                B3["" + YP[0]] = [...BP1];
+            }
+            if (BoundingBox.isInside(TP1, b2)) {
+                B3["" + YP[1]] = [...TP1];
+            }
+            if (BoundingBox.isInside(BP2, b1)) {
+                B3["" + YP[0]] = [...BP2];
+            }
+            if (BoundingBox.isInside(TP2, b1)) {
+                B3["" + YP[1]] = [...TP2];
             }
         }
         for (let ZP of BoundingBox.#VP[2]) {
-            let BP = b1["" + ZP[0]];
-            let FP = b1["" + ZP[1]];
-            let back_plane = BoundingBox.depthLineCheck(BP, FP, b2[0], b2[1], b2[2]);
-            let forward_plane = BoundingBox.depthLineCheck(FP, FP, b2[4], b2[5], b2[6]);
-            if (back_plane) {
-                b3["" + ZP[0]] = [BP[1], BP[2], b2[0][2]];
+            // FRONT TO BACK
+            let FP1 = b1["" + ZP[0]];
+            let BP1 = b1["" + ZP[1]];
+            let FP2 = b2["" + ZP[0]];
+            let BP2 = b2["" + ZP[1]];
+            // (method) BoundingBox.depthLineCheck(FP: any, BP: any, FoBLB: any, FoBRB: any, FoBLT: any): boolean
+            let back_plane1 = BoundingBox.depthLineCheck(FP1, BP1, b2[4], b2[5], b2[6]);
+            let forward_plane1 = BoundingBox.depthLineCheck(FP1, BP1, b2[0], b2[1], b2[2]);
+            let back_plane2 = BoundingBox.depthLineCheck(FP2, BP2, b1[4], b1[5], b1[6]);
+            let forward_plane2 = BoundingBox.depthLineCheck(FP2, BP2, b1[0], b1[1], b1[2]);
+            if (back_plane1) {
+                B3["" + ZP[1]] = [BP1[0], BP1[1], b2[4][2]];
             }
-            if (forward_plane) {
-                b3["" + ZP[1]] = [BP[1], BP[2], b2[4][2]];
+            if (forward_plane1) {
+                B3["" + ZP[0]] = [FP1[0], FP1[1], b2[0][2]];
             }
-            if (BoundingBox.isInside(BP, b2)) {
-                b3["" + ZP[0]] = [...BP];
+            if (back_plane2) {
+                B3["" + ZP[1]] = [BP2[0], BP2[1], b1[4][2]];
             }
-            if (BoundingBox.isInside(FP, b2)) {
-                b3["" + ZP[1]] = [...FP];
+            if (forward_plane2) {
+                B3["" + ZP[0]] = [FP2[0], FP2[1], b1[0][2]];
+            }
+            if (BoundingBox.isInside(BP1, b2)) {
+                B3["" + ZP[1]] = [...BP1];
+            }
+            if (BoundingBox.isInside(FP1, b2)) {
+                B3["" + ZP[0]] = [...FP1];
+            }
+            if (BoundingBox.isInside(BP2, b1)) {
+                B3["" + ZP[1]] = [...BP2];
+            }
+            if (BoundingBox.isInside(FP2, b1)) {
+                B3["" + ZP[0]] = [...FP2];
             }
         }
-        return BoundingBox.correctBoundingBox(b3);
+        return this.correctBoundingBox(B3);
     }
     /**
      * Checks if all of the given vertice numbers are defined within {@link BoundingBox.boundingBox} b3 (valid {@link Voxel}).
      *
-     * @remarks Used internally by {@link BoundingBox.correctBoundingBox}. Can also be used to tell if a given {@link PartialBoundingBox} can be casted to a {@link CompleteBoundingBox}
+     * @remarks Used internally by {@link BoundingBox.correctBoundingBox}. Can also be used to tell if a given {@link PartialBoundingBoxPointData} can be casted to a {@link CompleteBoundingBoxPointData}
      *
      * @param b3
      * @param args List of vertices to check if all are defined
@@ -811,7 +906,7 @@ export class BaseObject {
     /**
      * A single {@link BoundingBox} that emcompasses the entire {@link BaseObject._fillVoxels}.
      *
-     * If the their are no voxels to surrond, it comes a empty Bounding Box {@link ZeroVolumeBoundingBox}. This type mimics a bounding box, but contains no corner voxels or range data.
+     * If the their are no voxels to surrond, it comes a empty Bounding Box {@link ZeroVolumeBoundingBoxPointData}. This type mimics a bounding box, but contains no corner voxels or range data.
      *
      * Without these zero voxel type, the {@link BaseObject} could never represent a shape with no Voxels,
      * which would be a would be a issue with representing a shape the is composed as the mathematical intersection between two shapes that do not intersect.
@@ -819,7 +914,7 @@ export class BaseObject {
      * @remarks
      * Accounts for origin.
      */
-    boundingBox;
+    boundingBoxMeta;
     /**
      * Catagorizes a group of voxels into a directory where the key is the value of the largest axes from the {@link BoundingBox}. The value is all voxels with that coordinate value.
      *
@@ -833,11 +928,11 @@ export class BaseObject {
         // Inital value
         this._fillVoxels = [[0, 0, 0]];
         this._origin = [...options.origin];
-        this.boundingBox = new BoundingBox({
+        this.boundingBoxMeta = new BoundingBox({
             boundingInputPayload: BaseObject.addOrigin(this._fillVoxels, this._origin),
             inputType: BoundingBoxPayloadModes.TYPE_BOUNDING_POINTS
         });
-        let output = BaseObject.sortFillVoxels(this.getFillVoxels(), this.boundingBox);
+        let output = BaseObject.sortFillVoxels(this.getFillVoxels(), this.boundingBoxMeta);
         this.sortedFillVoxelsDirectory = output.sortedFillVoxelsDirectory;
         this.jointBoundingBox = output.jointBoundingBox;
     }
@@ -884,20 +979,20 @@ export class BaseObject {
      *
      * {@link BaseObject.sortFillVoxels} can only accept a BoundingBox and more than one Voxel. As a result, we cannot run that function when the object has no voxels.
      *
-     * As a result, running this function when you have no voxels will result in creating a {@link ZeroVolumeBoundingBox}, an empty {@link JointBoundingBox}, and an empty {@link BaseObject.sortedFillVoxelsDirectory}
+     * As a result, running this function when you have no voxels will result in creating a {@link ZeroVolumeBoundingBoxPointData}, an empty {@link JointBoundingBox}, and an empty {@link BaseObject.sortedFillVoxelsDirectory}
     */
     calculateBoundingBox() {
         this.sortedFillVoxelsDirectory = {};
         if (this._fillVoxels.length === 0) {
-            this.boundingBox = { boundingBox: BoundingBox.getEmptyBoundingTemplate() };
+            this.boundingBoxMeta = BoundingBox.getEmptyBoundingTemplate();
             this.jointBoundingBox = new JointBoundingBox([]);
         }
         else {
-            this.boundingBox = new BoundingBox({
+            this.boundingBoxMeta = new BoundingBox({
                 inputType: BoundingBoxPayloadModes.TYPE_BOUNDING_POINTS,
                 boundingInputPayload: this.getFillVoxels()
             });
-            let output = BaseObject.sortFillVoxels(this.getFillVoxels(), this.boundingBox);
+            let output = BaseObject.sortFillVoxels(this.getFillVoxels(), this.boundingBoxMeta);
             this.sortedFillVoxelsDirectory = output.sortedFillVoxelsDirectory;
             this.jointBoundingBox = output.jointBoundingBox;
         }
@@ -947,6 +1042,8 @@ export class BaseObject {
         }
         for (let key of Object.keys(sortedFillVoxelsDirectory)) {
             let fillKey = Number(key);
+            // All points are sorted such that a binary search can be preformed on them.
+            sortedFillVoxelsDirectory[fillKey] = sortedFillVoxelsDirectory[fillKey].sort((a, b) => a[biggestRangeIndex[2]] - b[biggestRangeIndex[2]]).sort((a, b) => a[biggestRangeIndex[1]] - b[biggestRangeIndex[1]]);
             if (sortedFillVoxelsDirectory[fillKey].length >= 1) {
                 sliceBoundingBoxDirectory.push(new BoundingBox({
                     inputType: BoundingBoxPayloadModes.TYPE_BOUNDING_POINTS,
@@ -1162,7 +1259,7 @@ export class Line extends BaseObject {
      */
     generateLine() {
         this._fillVoxels = [];
-        const { biggestRangeIndex } = this.boundingBox;
+        const { biggestRangeIndex } = this.boundingBoxMeta;
         let startToEnd = BaseObject.graph3DParametric(...this._endPoints[0], ...this._endPoints[1]);
         BaseObject.push2D(startToEnd, this._fillVoxels);
         this._fillVoxels = this._fillVoxels
@@ -2216,7 +2313,7 @@ export class SetOperationsEquation {
  *
  * Alows the user to pass in an array of voxels for storage
  */
-class VoxelCollection extends BaseObject {
+export class VoxelCollection extends BaseObject {
     constructor(options) {
         super({
             "controller": options.controller,
@@ -2287,6 +2384,42 @@ export class CompositeVoxelCollection extends BaseObject {
         this.equationInstance.validateEquation();
         this.equationInstance.generateAST();
         return this;
+    }
+    static findPoint(obj, point) {
+        let directory = obj.sortedFillVoxelsDirectory;
+        let box = obj.boundingBoxMeta;
+        let range = box.biggestRangeIndex;
+        if (Object.keys(directory).indexOf("" + point[0]) === -1) {
+            return -1;
+        }
+        let targetSortedEntry = directory[point[0]];
+        return CompositeVoxelCollection.#pointBinarySearch(targetSortedEntry, 0, Math.floor((targetSortedEntry.length - 1) / 2), targetSortedEntry.length - 1, point, range[1], range);
+    }
+    static #pointBinarySearch(arr, low, mid, high, targetCoord, targetIndex, scheme) {
+        if (low > high) {
+            return -1;
+        }
+        if (arr[mid][targetIndex] === targetCoord[targetIndex]) {
+            let indexOfIndex = scheme.indexOf(targetIndex);
+            if (indexOfIndex === 2) {
+                return mid;
+            }
+            else {
+                targetIndex = scheme[indexOfIndex + 1];
+                return this.#pointBinarySearch(arr, low, mid, high, targetCoord, targetIndex, scheme);
+            }
+        }
+        if (arr[mid][targetIndex] < targetCoord[targetIndex]) {
+            low = mid + 1;
+            mid = low + Math.floor((high - low) / 2);
+            return this.#pointBinarySearch(arr, low, mid, high, targetCoord, targetIndex, scheme);
+        }
+        if (arr[mid][targetIndex] > targetCoord[targetIndex]) {
+            high = mid - 1;
+            mid = low + Math.floor((high - low) / 2);
+            return this.#pointBinarySearch(arr, low, mid, high, targetCoord, targetIndex, scheme);
+        }
+        throw new TypeError("Binary Search Hit Lost End Conditation");
     }
     #recursiveSolver(layer, depth) {
         // need to deal with one length equations
@@ -2393,7 +2526,7 @@ export class CompositeVoxelCollection extends BaseObject {
         for (let box1 of token1JointBox) {
             for (let box2 of token2JointBox) {
                 // need to make these static
-                let intersection = BoundingBox.boundingBoxIntersect(box1.boundingBox, box2.boundingBox);
+                let intersection = BoundingBox.boundingBoxIntersect(box1.boundingBoxPointData, box2.boundingBoxPointData);
                 if (intersection[0]) {
                     // Add these intersected sub box to the intersection box array.
                     intersectionArr.push(new BoundingBox({
@@ -2413,7 +2546,7 @@ export class CompositeVoxelCollection extends BaseObject {
         let token1Voxels = token1.getFillVoxels();
         let token2Voxels = token2.getFillVoxels();
         for (let voxel of token1Voxels) {
-            if (!intersectionJoint.isInside(voxel)) {
+            if (!intersectionJoint.isInside(voxel) || CompositeVoxelCollection.findPoint(token2, voxel) === -1) {
                 token1NotInJoint.push(voxel);
             }
             else {
@@ -2421,7 +2554,7 @@ export class CompositeVoxelCollection extends BaseObject {
             }
         }
         for (let voxel of token2Voxels) {
-            if (!intersectionJoint.isInside(voxel)) {
+            if (!intersectionJoint.isInside(voxel) || CompositeVoxelCollection.findPoint(token1, voxel) === -1) {
                 token2NotInJoint.push(voxel);
             }
         }
@@ -2711,8 +2844,14 @@ export class LayerConvexExtrude extends BaseObject {
                 }
                 // Now generate the convex hull for this group of voxels.
                 let newFillVoxel = [];
+                let boundingBoxMetaReference;
                 for (let key of Object.keys(sectionVoxelCollection.sortedFillVoxelsDirectory)) {
-                    BaseObject.push2D(LayerConvexExtrude.convexHull(sectionVoxelCollection.sortedFillVoxelsDirectory[Number(key)]), newFillVoxel);
+                    let convexCoords = BaseObject.deepCopy(sectionVoxelCollection.sortedFillVoxelsDirectory[Number(key)]);
+                    boundingBoxMetaReference = sectionVoxelCollection.boundingBoxMeta;
+                    convexCoords = convexCoords.map((v) => v.filter((c, index) => index != boundingBoxMetaReference.biggestRangeIndex[0]));
+                    convexCoords = LayerConvexExtrude.convexHull(convexCoords);
+                    convexCoords = convexCoords.map((v) => { return v.splice(boundingBoxMetaReference.biggestRangeIndex[0], 0, Number(key)), v; });
+                    BaseObject.push2D(convexCoords, newFillVoxel);
                 }
                 // Saves n time complexity by directly setting the newFillVoxels as a pointer in memory
                 // Know we can gurantee that each sectionVoxelCollection.sortedFillVoxelsDirectory[key] is a convex hull for extrude
