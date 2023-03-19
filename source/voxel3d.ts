@@ -3285,7 +3285,7 @@ export class LayerConvexExtrude extends BaseObject {
             "log": false
          })
          let equation = "";
-         let fillVoxelNamesAllSections: Record<string, BaseObject> = {};
+         let fillVoxelNamesAllSections: Record<string, VoxelCollection> = {};
          let keys = Object.keys(this.edgeDirectory);
          for (let i = 0; i < keys.length; i++) {
             let key = Number(keys[i]);
