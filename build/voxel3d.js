@@ -936,6 +936,9 @@ export class BaseObject {
         this.sortedFillVoxelsDirectory = output.sortedFillVoxelsDirectory;
         this.jointBoundingBox = output.jointBoundingBox;
     }
+    static convertPointsToDemos(points) {
+        return JSON.stringify(points).replace(/\]/g, ")").replace(/\[/g, "(").replace(/\({2}/g, "(").replace(/\){2}/g, ")");
+    }
     static sortPoints(arr) {
         return arr.sort((a, b) => a[2] - b[2]).sort((a, b) => a[1] - b[1]).sort((a, b) => a[0] - b[0]);
     }
@@ -1063,51 +1066,46 @@ export class BaseObject {
         if (this._fillVoxels.length === 0) {
             return [-1, -1];
         }
-        let targetKey = point[this.boundingBoxMeta.biggestRangeIndex[0]];
+        let asseretedTSBoundingBox = this.boundingBoxMeta;
+        let targetKey = point[asseretedTSBoundingBox.biggestRangeIndex["" + 0]];
         if (Object.keys(this.sortedFillVoxelsDirectory).indexOf("" + targetKey) === -1) {
             return [-1, -1];
         }
         let targetSortedEntry = this.sortedFillVoxelsDirectory[targetKey];
-        return [targetKey, BaseObject.#pointBinarySearch(targetSortedEntry, 0, Math.floor((targetSortedEntry.length - 1) / 2), targetSortedEntry.length - 1, point, 0)];
+        return [targetKey, BaseObject.#pointBinarySearch(BaseObject.sortPoints(targetSortedEntry), 0, Math.floor((targetSortedEntry.length - 1) / 2), targetSortedEntry.length - 1, point, 0)];
     }
     static findPointFromArray(arr, point) {
         return BaseObject.#pointBinarySearch(BaseObject.sortPoints(arr), 0, Math.floor((arr.length - 1) / 2), arr.length - 1, point, 0);
     }
     static #pointBinarySearch(arr, low, mid, high, targetCoord, targetIndex) {
-        // console.log("\n\n\nLow: "+low);
-        // console.log("Mid: "+mid);
-        // console.log("High: "+high);
-        // console.log("targetCoord: "+JSON.stringify(targetCoord))
-        // console.log("targetIndex: "+JSON.stringify(targetIndex))
-        if (low > high || !(JSON.stringify([...arr[mid]].splice(0, targetIndex))
-            === JSON.stringify([...targetCoord].splice(0, targetIndex))) || arr.length === 0) {
+        if (low > high || arr.length === 0) {
             return -1;
         }
-        // console.log("Mid: "+JSON.stringify(arr[mid]))
-        // console.log("Arr: "+arr[mid][targetIndex])
-        // console.log("Coord: "+targetCoord[targetIndex] )
         if (arr[mid][targetIndex] === targetCoord[targetIndex]) {
-            // console.log("Activated IF STATEMENT")
             if (targetIndex === 2) {
                 return mid;
             }
             else {
-                // console.log("Incrementing Target")
                 targetIndex += 1;
-                return this.#pointBinarySearch(arr, low, mid, high, targetCoord, targetIndex);
+                for (let i = 0; i < targetIndex; i++) {
+                    if (arr[mid][i] != targetCoord[i]) {
+                        return BaseObject.#pointBinarySearch(arr, low, mid, high, targetCoord, i - 1 >= 0 ? i - 1 : 0);
+                    }
+                }
+                return BaseObject.#pointBinarySearch(arr, low, mid, high, targetCoord, targetIndex);
             }
         }
         if (arr[mid][targetIndex] < targetCoord[targetIndex]) {
             low = mid + 1;
             mid = low + Math.floor((high - low) / 2);
-            return this.#pointBinarySearch(arr, low, mid, high, targetCoord, targetIndex);
+            return BaseObject.#pointBinarySearch(arr, low, mid, high, targetCoord, targetIndex);
         }
         if (arr[mid][targetIndex] > targetCoord[targetIndex]) {
             high = mid - 1;
             mid = low + Math.floor((high - low) / 2);
-            return this.#pointBinarySearch(arr, low, mid, high, targetCoord, targetIndex);
+            return BaseObject.#pointBinarySearch(arr, low, mid, high, targetCoord, targetIndex);
         }
-        throw new TypeError("Binary Search Hit Lost End Conditation");
+        throw new TypeError("Binary Search Is Lost finding Voxel" + JSON.stringify(targetCoord) + " in Voxel[] " + JSON.stringify(arr));
     }
     /**
      * Generates a 3D tesselated line between a start and end point.
@@ -1433,7 +1431,7 @@ export class Layer extends BaseObject {
         }
         tempLine.delete();
         compositeMedian.delete();
-        this._edgeVoxels = BaseObject.deepCopy(this._fillVoxels);
+        this._edgeVoxels = BaseObject.push2D(this._fillVoxels, []);
         return this;
     }
     /**
@@ -2478,42 +2476,6 @@ export class CompositeVoxelCollection extends BaseObject {
         this.equationInstance.generateAST();
         return this;
     }
-    static findPoint(obj, point) {
-        let directory = obj.sortedFillVoxelsDirectory;
-        let box = obj.boundingBoxMeta;
-        let range = box.biggestRangeIndex;
-        if (Object.keys(directory).indexOf("" + point[0]) === -1) {
-            return -1;
-        }
-        let targetSortedEntry = directory[point[0]];
-        return CompositeVoxelCollection.#pointBinarySearch(targetSortedEntry, 0, Math.floor((targetSortedEntry.length - 1) / 2), targetSortedEntry.length - 1, point, range[1], range);
-    }
-    static #pointBinarySearch(arr, low, mid, high, targetCoord, targetIndex, scheme) {
-        if (low > high) {
-            return -1;
-        }
-        if (arr[mid][targetIndex] === targetCoord[targetIndex]) {
-            let indexOfIndex = scheme.indexOf(targetIndex);
-            if (indexOfIndex === 2) {
-                return mid;
-            }
-            else {
-                targetIndex = scheme[indexOfIndex + 1];
-                return this.#pointBinarySearch(arr, low, mid, high, targetCoord, targetIndex, scheme);
-            }
-        }
-        if (arr[mid][targetIndex] < targetCoord[targetIndex]) {
-            low = mid + 1;
-            mid = low + Math.floor((high - low) / 2);
-            return this.#pointBinarySearch(arr, low, mid, high, targetCoord, targetIndex, scheme);
-        }
-        if (arr[mid][targetIndex] > targetCoord[targetIndex]) {
-            high = mid - 1;
-            mid = low + Math.floor((high - low) / 2);
-            return this.#pointBinarySearch(arr, low, mid, high, targetCoord, targetIndex, scheme);
-        }
-        throw new TypeError("Binary Search Is Lost");
-    }
     #recursiveSolver(layer, depth) {
         // need to deal with one length equations
         let token1 = "";
@@ -2838,6 +2800,10 @@ export class LayerConvexExtrude extends BaseObject {
      * The voxels of each section overlap, so use {@link LayerConvexExtrude.getEdgeDirectory} to retrieve a duplicate free version.
      */
     edgeDirectory;
+    /**
+     * The amount of degrees in a single radian, calculated via 180 degrees / Math.PI upon initialization
+     */
+    static #degPerRad = (180 / Math.PI);
     constructor(options) {
         super({
             "controller": options.controller,
@@ -2847,45 +2813,76 @@ export class LayerConvexExtrude extends BaseObject {
         this.edgeDirectory = {};
         this.shell = false;
     }
-    static pointOrientation(p1, p2, p3) {
-        // If the slope from p1 to p2 is less than the slope from p2 to p3, 
-        // then the points are trending counter clockwise. 
-        return (p2[1] - p1[1]) * (p3[0] - p2[0]) - (p3[1] - p2[1]) * (p2[0] - p1[0]);
+    /**
+     * Sorts the given array of XY points ascending order by their polar angle.
+     *
+     * Uses Math.atan2(y, x) to calculate the angle from 0 to Math.PI, converts to degrees.
+     * Converts all negative angles to positive degrees, then returns the subtraction of the angles.
+     *
+     * Based upon JavaScripts built in sort method
+     *
+     * Complexity: O(n*log2(n))
+     *
+     * @param inputPoints Array of XY points
+     * @param center The origin to base the angle from.
+     * @returns Mutates the original input in sorted order.
+     */
+    static polarSort(inputPoints, center) {
+        return inputPoints.sort((a, b) => {
+            let angle1 = Math.atan2((a[1] - center[1]), (a[0] - center[0])) * LayerConvexExtrude.#degPerRad;
+            angle1 += angle1 < 0 ? 360 : 0;
+            let angle2 = Math.atan2((b[1] - center[1]), (b[0] - center[0])) * LayerConvexExtrude.#degPerRad;
+            angle2 += angle2 < 0 ? 360 : 0;
+            return angle1 - angle2;
+        });
     }
+    /**
+     * Calculuates the linearity of the three points.
+     *
+     * If the points trend positive, it is a counter-clockwise.
+     *
+     * If the points trend zero, the points are collinear
+     *
+     * If the points treng negative, the points are clockwise.
+     *
+     *
+     * P1 --> P2 --> P3
+     *
+     * @param p1
+     * @param p2
+     * @param p3
+     * @returns Positive for counter-clockwise, zero for collinear, negative for clockwise.
+     */
+    static pointOrientation(p1, p2, p3) {
+        // returns slope from p1 to p2 minus p2 to p3
+        return (p2[0] - p1[0]) * (p3[1] - p1[1]) - (p2[1] - p1[1]) * (p3[0] - p1[0]);
+    }
+    /**
+     * Uses Graham Scan to calculaute the Convex Hull of the given input points.
+     *
+     * Complexity: O(n*log2(n))
+     *
+     * @link https://en.wikipedia.org/wiki/Graham_scan
+     *
+     * @param inputPoints The input points, does not mutate
+     * @returns The convexhull of the points.
+     */
     static convexHull(inputPoints) {
-        if (inputPoints.length <= 3) {
-            return inputPoints;
-        }
+        let stack = [];
         // Sort the data set from lowest x value to highest
-        let sortedPoints = inputPoints.sort((a, b) => a[0] - b[0]);
-        let convexHull = [sortedPoints[0]];
-        // Start with a point we know is on the hull
-        let pointOnHull = sortedPoints[0];
-        while (true) {
-            for (let i = 1; i < sortedPoints.length; i++) {
-                // Grab the potinal for the next point.
-                let nextPoint = sortedPoints[i];
-                // Loop back through again and confirm that this is the most counterclockwise point
-                for (let j = 0; j < sortedPoints.length; j++) {
-                    // If a point on the hull is more counter clockwise than this current point
-                    if (LayerConvexExtrude.pointOrientation(pointOnHull, nextPoint, sortedPoints[j]) < 0) {
-                        // This should be the next point instead
-                        nextPoint = [...sortedPoints[j]];
-                        // And that when we come back around for a new nextPoint, 
-                        // don't go back over values already checked.
-                        i = j;
-                    }
+        let sortedPoints = BaseObject.push2D(inputPoints, []).sort((a, b) => a[0] - b[0]);
+        let center = sortedPoints[0];
+        sortedPoints = [center, ...LayerConvexExtrude.polarSort(sortedPoints.splice(1, sortedPoints.length), center)];
+        for (let i = 0; i < sortedPoints.length; i++) {
+            let point = sortedPoints[i];
+            if (stack.length > 1) {
+                while (stack.length > 1 && LayerConvexExtrude.pointOrientation(stack[1], stack[0], point) <= 0) {
+                    stack.shift();
                 }
-                // If we have come back around
-                if (JSON.stringify(nextPoint) === JSON.stringify(sortedPoints[0])) {
-                    return convexHull;
-                }
-                // After we found the new value of the nextPoint, add it to the hull
-                convexHull.push([...nextPoint]);
-                // Now we restart the loop again, with this new hull point.
-                pointOnHull = [...nextPoint];
             }
+            stack.unshift(point);
         }
+        return stack;
     }
     generateEdges(includeShapeEdges) {
         this.resetEdgeDirectory();
@@ -2922,6 +2919,20 @@ export class LayerConvexExtrude extends BaseObject {
                     [sectionVoxelCollection.uuid]: sectionVoxelCollection,
                     [lineVoxelCollection.uuid]: lineVoxelCollection,
                 });
+                let edgeVoxel = new VoxelCollection({
+                    "controller": this.controller,
+                    "origin": [0, 0, 0],
+                    "fillVoxels": endObject.getVerticeVoxels()
+                });
+                compositeMedian.changeNames({
+                    [sectionVoxelCollection.uuid]: sectionVoxelCollection,
+                    [lineVoxelCollection.uuid]: lineVoxelCollection,
+                    [edgeVoxel.uuid]: edgeVoxel
+                }).setEquation(edgeVoxel.uuid + compositeMedian.tokens.SUBTRACTION_OP + sectionVoxelCollection.uuid);
+                sectionVoxelCollection.addFillVoxels(compositeMedian.interpretAST().getFillVoxels());
+                edgeVoxel.setFillVoxels(startObject.getVerticeVoxels());
+                sectionVoxelCollection.addFillVoxels(compositeMedian.interpretAST().getFillVoxels());
+                edgeVoxel.delete();
                 // Set the equation to the this new section + the line varaible. 
                 compositeMedian.setEquation(lineVoxelCollection.uuid + compositeMedian.tokens.SUBTRACTION_OP + sectionVoxelCollection.uuid);
                 // reset it for each new section calculauted 
@@ -2933,75 +2944,94 @@ export class LayerConvexExtrude extends BaseObject {
                     for (let EV of endV) {
                         // Set the fille voxels of the current lineCollection to the outputted line calculation
                         lineVoxelCollection.setFillVoxels(BaseObject.graph3DParametric(...SV, ...EV));
-                        console.log("Generated Line: " + JSON.stringify(BaseObject.sortPoints(lineVoxelCollection.getFillVoxels())) + " From [" + SV + "] To [" + EV + "]");
                         // THen, add these new voxels to the section, removing duplicates by subtracting.
                         sectionVoxelCollection.addFillVoxels(compositeMedian.interpretAST().getFillVoxels());
-                        console.log("New Section Voxels: " + JSON.stringify(BaseObject.sortPoints(sectionVoxelCollection.getFillVoxels())) + "\n\n\n");
                     }
                 }
-                // Now generate the convex hull for this group of voxels.
+                /**
+                 * Since the process of extruding each vertice to another creates internal points,
+                 * A convex hull is applied to each slice of the section.
+                 * This leaves behind only the points on the outside shell of the shape.
+                 *
+                 * This is done by looping through each sortedFillVoxelDirectory slice,
+                 * and generating the convexHull for each slice.
+                 * Since the sortedFillVoxelsDirectory should not be mutated all of the resulting convexHulls are placed in a new array.
+                 * This new array is the new fillVoxels for this section.
+                 */
                 let newFillVoxel = [];
                 let boundingBoxMetaReference;
                 for (let key of Object.keys(sectionVoxelCollection.sortedFillVoxelsDirectory)) {
+                    // The inital type for convexCoords is Voxel[], but it gets turned into Point[]
+                    // As a result, the inital type must be number[][] to support both types.
                     let convexCoords = BaseObject.deepCopy(sectionVoxelCollection.sortedFillVoxelsDirectory[Number(key)]);
                     boundingBoxMetaReference = sectionVoxelCollection.boundingBoxMeta;
                     convexCoords = convexCoords.map((v) => v.filter((coordValue, index) => index != boundingBoxMetaReference.biggestRangeIndex[0]));
+                    // convexHull only accepts Point[], so it is casted due to filtering.
                     convexCoords = LayerConvexExtrude.convexHull(convexCoords);
                     convexCoords = convexCoords.map((v) => { return v.splice(boundingBoxMetaReference.biggestRangeIndex[0], 0, Number(key)), v; });
                     BaseObject.push2D(convexCoords, newFillVoxel);
                 }
-                // Saves n time complexity by directly setting the newFillVoxels as a pointer in memory
-                // Know we can gurantee that each sectionVoxelCollection.sortedFillVoxelsDirectory[key] is a convex hull for extrude
+                /**
+                 * The section is now directly updated with these new voxels.
+                 * This is done by directly mutating the _fillVoxels, saving O(n) time.
+                 */
                 sectionVoxelCollection._fillVoxels = newFillVoxel;
                 sectionVoxelCollection.calculateBoundingBox();
-                // Saves these voxels
+                // Save a reference to this new section object.
                 this.edgeDirectory[sectionKey] = sectionVoxelCollection;
                 sectionKey++;
+                /**
+                 * Since the convexHull operation only saves the minimal amount of points
+                 * required to construct a shell of this shape, the user can clean up the shape edges to make it look better.
+                 * This is an experimental feature.
+                 */
                 if (includeShapeEdges) {
-                    let endEdgeVoxels = new VoxelCollection({
+                    let edgeVoxel = new VoxelCollection({
                         "controller": this.controller,
                         "origin": [0, 0, 0],
                         "fillVoxels": endObject.getEdgeVoxels()
                     });
-                    let startEdgeVoxels = new VoxelCollection({
+                    compositeMedian.changeNames({
+                        [sectionVoxelCollection.uuid]: sectionVoxelCollection,
+                        [edgeVoxel.uuid]: edgeVoxel
+                    }).setEquation(edgeVoxel.uuid + compositeMedian.tokens.SUBTRACTION_OP + sectionVoxelCollection.uuid);
+                    sectionVoxelCollection.addFillVoxels(compositeMedian.interpretAST().getFillVoxels());
+                    edgeVoxel.setFillVoxels(startObject.getEdgeVoxels());
+                    sectionVoxelCollection.addFillVoxels(compositeMedian.interpretAST().getFillVoxels());
+                    // Do some styling by generating edges.
+                    let sectionKeys = Object.keys(sectionVoxelCollection.sortedFillVoxelsDirectory);
+                    let sortedFillEntry = BaseObject.push2D(sectionVoxelCollection.sortedFillVoxelsDirectory[Number(sectionKeys[0])], []);
+                    sortedFillEntry = sortedFillEntry.map((v) => v.filter((coordValue, index) => index != boundingBoxMetaReference.biggestRangeIndex[0]));
+                    sortedFillEntry = LayerConvexExtrude.convexHull(sortedFillEntry);
+                    sortedFillEntry = sortedFillEntry.map((v) => { return v.splice(boundingBoxMetaReference.biggestRangeIndex[0], 0, Number(sectionKeys[0])), v; });
+                    edgeVoxel.delete();
+                    let layerMedian = new Layer({
                         "controller": this.controller,
                         "origin": [0, 0, 0],
-                        "fillVoxels": startObject.getEdgeVoxels()
+                        "verticesArray": sortedFillEntry
                     });
-                    console.log("--> Adding End Voxels <--");
                     compositeMedian.changeNames({
                         [sectionVoxelCollection.uuid]: sectionVoxelCollection,
-                        [lineVoxelCollection.uuid]: lineVoxelCollection,
-                        [endEdgeVoxels.uuid]: endEdgeVoxels
-                    }).setEquation(endEdgeVoxels.uuid + compositeMedian.tokens.SUBTRACTION_OP + sectionVoxelCollection.uuid);
+                        [layerMedian.uuid]: layerMedian
+                    }).setEquation(layerMedian.uuid + compositeMedian.tokens.SUBTRACTION_OP + sectionVoxelCollection.uuid);
+                    // Generate the edges and add these back to the section
+                    layerMedian.generateEdges();
                     sectionVoxelCollection.addFillVoxels(compositeMedian.interpretAST().getFillVoxels());
-                    compositeMedian.changeNames({
-                        [sectionVoxelCollection.uuid]: sectionVoxelCollection,
-                        [lineVoxelCollection.uuid]: lineVoxelCollection,
-                        [startEdgeVoxels.uuid]: startEdgeVoxels
-                    }).setEquation(startEdgeVoxels.uuid + compositeMedian.tokens.SUBTRACTION_OP + sectionVoxelCollection.uuid);
+                    // Now do the highest key
+                    sortedFillEntry = BaseObject.push2D(sectionVoxelCollection.sortedFillVoxelsDirectory[Number(sectionKeys[sectionKeys.length - 1])], []);
+                    sortedFillEntry = sortedFillEntry.map((v) => v.filter((coordValue, index) => index != boundingBoxMetaReference.biggestRangeIndex[0]));
+                    sortedFillEntry = LayerConvexExtrude.convexHull(sortedFillEntry);
+                    sortedFillEntry = sortedFillEntry.map((v) => { return v.splice(boundingBoxMetaReference.biggestRangeIndex[0], 0, Number(sectionKeys[sectionKeys.length - 1])), v; });
+                    layerMedian.changeVertices(sortedFillEntry).generateEdges();
                     sectionVoxelCollection.addFillVoxels(compositeMedian.interpretAST().getFillVoxels());
-                    endEdgeVoxels.delete();
-                    startEdgeVoxels.delete();
+                    // Clear UUIDs
+                    layerMedian.delete();
                 }
             }
         }
-        // Once we are done, combine all of the information into fillVoxels
-        let equation = "";
-        let fillVoxelNamesAllSections = {};
-        let keys = Object.keys(this.edgeDirectory);
-        for (let i = 0; i < keys.length; i++) {
-            let key = Number(keys[i]);
-            equation += this.edgeDirectory[key].uuid;
-            fillVoxelNamesAllSections[this.edgeDirectory[key].uuid] = this.edgeDirectory[key];
-            if (i + 1 !== keys.length) {
-                equation += compositeMedian.tokens.UNION_OP;
-            }
-        }
-        compositeMedian.changeNames(fillVoxelNamesAllSections);
-        BaseObject.push2D(compositeMedian.setEquation(equation).interpretAST().getFillVoxels(), this._fillVoxels);
         compositeMedian.delete();
         lineVoxelCollection.delete();
+        this._fillVoxels = this.getEdgeDirectory(LayerConvexExtrudeEdgeDirectoryOptions.RETURN_MODE_VOXELS);
         this.calculateBoundingBox();
         return this;
     }
@@ -3014,7 +3044,28 @@ export class LayerConvexExtrude extends BaseObject {
             return output;
         }
         else if (mode === LayerConvexExtrudeEdgeDirectoryOptions.RETURN_MODE_VOXELS) {
-            return [];
+            let fillVoxels = [];
+            let compositeMedian = new CompositeVoxelCollection({
+                "controller": this.controller,
+                "origin": [0, 0, 0],
+                "variableNames": {},
+                "log": false
+            });
+            let equation = "";
+            let fillVoxelNamesAllSections = {};
+            let keys = Object.keys(this.edgeDirectory);
+            for (let i = 0; i < keys.length; i++) {
+                let key = Number(keys[i]);
+                equation += this.edgeDirectory[key].uuid;
+                fillVoxelNamesAllSections[this.edgeDirectory[key].uuid] = this.edgeDirectory[key];
+                if (i + 1 !== keys.length) {
+                    equation += compositeMedian.tokens.UNION_OP;
+                }
+            }
+            compositeMedian.changeNames(fillVoxelNamesAllSections);
+            BaseObject.push2D(compositeMedian.setEquation(equation).interpretAST().getFillVoxels(), fillVoxels);
+            compositeMedian.delete();
+            return fillVoxels;
         }
         else {
             throw new ReferenceError("Invalid getEdgeDirectory mode, must be either 'RETURN_MODE_FULL_DIRECTORY' or 'RETURN_MODE_VOXELS'");
